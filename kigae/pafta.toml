@@ -36,6 +36,7 @@ layout = "./pafta/plasma/layout.js"
 "~/.config/kitty/light-theme.auto.conf" = "~/.config/kitty/pafta-paper.conf"
 "~/.config/kigae/p10k.zsh" = "~/.config/pafta/p10k.zsh"
 "~/.config/nvim/lua/plugins/kigae.lua" = "~/.config/pafta/nvim.lua"
+"~/.config/fastfetch/config.jsonc" = "~/.config/pafta/fastfetch.jsonc"
 
 [vscode]
 "workbench.colorTheme" = "Pafta Paper"
