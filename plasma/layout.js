@@ -27,6 +27,6 @@ rail.addWidget("org.pafta.railclock");
 
 kigae.tray(tray, { General: { hiddenItems: ["Xwayland Video Bridge", "chrome_status_icon_1@brave", "org.kde.plasma.brightness", "org.kde.plasma.clipboard", "Easy Effects", "org.kde.kdeconnect"] } });
 
-// the title block, in the corner of the sheet the print leaves for it (1920x1080: the frame's
-// inner rule ends 29px from the right and bottom edges, the box sits 22px inside that)
-kigae.desktop("org.pafta.legend", 1529, 777, 340, 252);
+// the title block, in the corner the print leaves for it. The desktop shifts x by +64 and snaps
+// to a 16px grid: this lands the box 25px inside the frame's inner rule on both sides (1920x1080)
+kigae.desktop("org.pafta.legend", 1456, 768, 340, 256);

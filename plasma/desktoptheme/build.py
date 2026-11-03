@@ -106,6 +106,7 @@ def write(dst, text):
 
 # ---------------------------------------------------------------- task ticks
 EDGES = {"": "bottom", "north-": "top", "west-": "left", "east-": "right"}
+TASK_MARGINS = (8, 5)  # across the panel, along it: 32px icons on the 48px rail
 
 
 def task_states(p):
@@ -144,8 +145,17 @@ def task_svg(p):
                    f'<rect width="{gw}" height="{gh}" style="fill:#000;fill-opacity:0"/>'
                    f'<rect x="{lx}" y="{ly}" width="{lw}" height="{lh}" style="fill:{p["ink"]};fill-opacity:0.55"/></g>')
         gx += 20
-    out.append(hints(700, 0, 2, "normal-"))
-    return f'<svg xmlns="{SVG}" width="800" height="{y}">{"".join(out)}</svg>'
+    # explicit margins for every edge and state: without them Plasma takes the corner pieces
+    # (sized to keep the tick short) as the button's padding and the rail's slots grow to 82px
+    hx = 700
+    for prefix in EDGES:
+        for state in states:
+            across, along = TASK_MARGINS
+            m = (dict(left=across, right=across, top=along, bottom=along) if prefix in ("west-", "east-")
+                 else dict(top=across, bottom=across, left=along, right=along))
+            out.append(hints(hx, 0, m, f"{prefix}{state}-"))
+            hx += 20
+    return f'<svg xmlns="{SVG}" width="{hx + 40}" height="{y}">{"".join(out)}</svg>'
 
 
 def task_frame(prefix, state, side, wash, tick, ox, oy):
@@ -155,7 +165,7 @@ def task_frame(prefix, state, side, wash, tick, ox, oy):
     rect = lambda x, y, w, h, st: f'<rect x="{x}" y="{y}" width="{w}" height="{h}" style="{st}"/>'
     blank = lambda w, h: rect(0, 0, w, h, "fill:#000;fill-opacity:0")
     ins = 3  # wash inset from the button edges
-    cw = 18 if tick and tick[2] == "short" else 10  # wider corners = shorter tick
+    cw = 22 if tick and tick[2] == "short" else 14  # wider corners = shorter tick
     pieces = {
         "topleft": (cw, CH, blank(cw, CH) + rect(ins, ins, cw - ins, CH - ins, wash_st)),
         "topright": (cw, CH, blank(cw, CH) + rect(0, ins, cw - ins, CH - ins, wash_st)),

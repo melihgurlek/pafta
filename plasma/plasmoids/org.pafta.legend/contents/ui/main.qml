@@ -88,9 +88,9 @@ PlasmoidItem {
 
     fullRepresentation: Item {
         Layout.preferredWidth: 340
-        Layout.preferredHeight: 252
+        Layout.preferredHeight: 256
         Layout.minimumWidth: 340
-        Layout.minimumHeight: 252
+        Layout.minimumHeight: 256
 
         Rectangle {  // the box: paper, a keyline and a thin inner rule
             anchors.fill: parent

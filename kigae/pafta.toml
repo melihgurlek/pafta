@@ -5,7 +5,7 @@ id = "pafta"
 name = "Pafta"
 kanji = "△"
 tagline = "a map sheet, reprinted under the real sun"
-preview = "./pafta/docs/desktop.png"
+preview = "./pafta/docs/desktop.jpg"
 
 [plasma]
 icons = "breeze"
