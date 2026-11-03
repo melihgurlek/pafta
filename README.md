@@ -52,7 +52,7 @@ lon = 28.98
 screen_inches = 15.6   # for the true scale bar
 size = "1920x1080"
 rail = 48              # the print leaves this much margin on the left for the panel
-sheet = "agri"
+sheet = "istanbul"
 ```
 
 `pafta-sun next`, `pafta-sun sheet istanbul` and `pafta-sun sheets` turn the atlas. `pafta-print --at 2026-11-03T17:40 --out dusk.png` prints any moment.

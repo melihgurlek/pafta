@@ -6,7 +6,7 @@
 """Print one edition of a Pafta map sheet: real terrain, lit by where the sun (or the moon)
 is over you right now.
 
-    pafta-print [--sheet agri] [--at 2026-11-03T17:05] [--out file.png] [--size 1920x1080]
+    pafta-print [--sheet istanbul] [--at 2026-11-03T17:05] [--out file.png] [--size 1920x1080]
 
 Elevation comes from the public AWS terrain tiles (Terrarium encoding, SRTM in Turkey) and is
 cached in ~/.cache/pafta/dem. Everything else is computed here: sun and moon positions, the
@@ -42,7 +42,7 @@ NIGHT = dict(
     wood="#16211B", road="#B9604D", road2="#9C7F45", ferry="#4F86AE",
 )
 GOLD_LIT, GOLD_SHADOW = "#FFE3B8", "#5E4F86"
-MONTHS = "OCAK ŞUBAT MART NİSAN MAYIS HAZİRAN TEMMUZ AĞUSTOS EYLÜL EKİM KASIM ARALIK".split()
+MONTHS = "JANUARY FEBRUARY MARCH APRIL MAY JUNE JULY AUGUST SEPTEMBER OCTOBER NOVEMBER DECEMBER".split()
 
 
 def rgb(h):
@@ -552,7 +552,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     mpp = 156543.03392 * math.cos(math.radians(lat0)) / 2 ** sheet["zoom"]
     chart = sheet.get("style") == "chart"
     bar_km = next(b for b in (10, 5, 2, 1, 0.5) if b * 1000 / mpp <= 180)  # the bar fits the box
-    note = "DERİNLİKLER METRE · EMODNET" if chart else f"EŞ YÜKSELTİ ARALIĞI {sheet.get('contour', 50)} M"
+    note = "SEA DEPTHS IN METRES" if chart else f"CONTOUR LINES EVERY {sheet.get('contour', 50)} M"
     diag_mm = home[2] * 25.4
     scale = mpp * 1000 / (diag_mm / math.hypot(W, H))
     scale_txt = f"1 : {round(scale, -3):,.0f}".replace(",", " ")
@@ -560,7 +560,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     if sset and when > sset:  # after dark the next sunrise is tomorrow's
         rise = sun_times(when.date() + dt.timedelta(days=1), home[0], home[1], tz)[0]
     state = dict(sheet=sheet_id, name=sheet["name"], region=sheet["region"],
-                 coords=f"{dms(lat0, True)} K  {dms(lon0, False)} D", scale=scale_txt,
+                 coords=f"{dms(lat0, True)} N  {dms(lon0, False)} E", scale=scale_txt,
                  px_per_km=round(1000 / mpp, 2), contour=sheet.get("contour", 50),
                  bar_km=bar_km, seg_px=round(bar_km * 1000 / mpp / 5, 2), note=note,
                  sun=dict(az=round(s_az), alt=round(s_alt), rise=f"{rise:%H:%M}" if rise else "",
@@ -671,9 +671,9 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     del col
     if chart:
         if s_alt > -1:
-            rose_az, rose_label = s_az, f"GÜNEŞ {s_az:.0f}°"
+            rose_az, rose_label = s_az, f"SUN {s_az:.0f}°"
         elif m_alt > 0:
-            rose_az, rose_label = m_az, f"AY {m_az:.0f}°"
+            rose_az, rose_label = m_az, f"MOON {m_az:.0f}°"
         else:
             rose_az, rose_label = None, ""
         chart_marks(base, sheet, osm, wmask, depth, day, pal, _px, mpp, rose_az, rose_label)
@@ -756,7 +756,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                         img.paste(lab, (int(Ws - M + 3 * S), int(py - 45 * S)), lab)
         minute_band("lon"); minute_band("lat")
         if osm:  # ODbL: the map credits its data
-            text(d, (R, Hs - 7 * S), "© OpenStreetMap" + (" · EMODnet" if chart else " katkıcıları"), f_coord, ink2, anchor="r")
+            text(d, (R, Hs - 7 * S), "© OpenStreetMap" + (" · EMODnet" if chart else " contributors"), f_coord, ink2, anchor="r")
         d.rectangle([L, T, R, Bt], outline=ink, width=int(1.6 * S))
         d.rectangle([L + B, T + B, R - B, Bt - B], outline=ink, width=int(0.8 * S))
 
@@ -825,20 +825,20 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
             text(d, (p, by + 126 * S), note, f_small, ink2, track=0.12)
             d.line([p, by + 139 * S, bx + bw - 20 * S, by + 139 * S], fill=ink2, width=S)
             if src == "moon" or (day < 0.5 and m_alt > 0):
-                sky_txt = f"AY  {m_az:.0f}°  {m_alt:.0f}°  ·  %{m_lit * 100:.0f}"
+                sky_txt = f"MOON  {m_az:.0f}°  {m_alt:.0f}°  ·  {m_lit * 100:.0f}% LIT"
             elif s_alt > -0.833:
                 _, sset = sun_times(when.date(), home[0], home[1], tz)
-                sky_txt = f"GÜNEŞ  {s_az:.0f}°  {s_alt:.0f}°" + (f"  ·  BATIŞ {sset:%H:%M}" if sset else "")
+                sky_txt = f"SUN  {s_az:.0f}°  {s_alt:.0f}°" + (f"  ·  SETS {sset:%H:%M}" if sset else "")
             else:
                 rise, _ = sun_times(when.date() + dt.timedelta(days=1 if when.hour >= 12 else 0), home[0], home[1], tz)
-                sky_txt = "GECE" + (f"  ·  DOĞUŞ {rise:%H:%M}" if rise else "")
+                sky_txt = "NIGHT" + (f"  ·  SUNRISE {rise:%H:%M}" if rise else "")
             text(d, (p, by + 159 * S), sky_txt, f_small, ink, track=0.12)
-            text(d, (p, by + 174 * S), f"BASKI  {when.day} {MONTHS[when.month - 1]} {when.year}  {when:%H:%M}", f_small, ink2, track=0.12)
+            text(d, (p, by + 174 * S), f"PRINTED  {when.day} {MONTHS[when.month - 1]} {when.year}  {when:%H:%M}", f_small, ink2, track=0.12)
             # north arrow above the box
             ax, ay = bx + bw - 16 * S, by - 22 * S
             d.polygon([(ax, ay - 34 * S), (ax - 7 * S, ay), (ax, ay - 7 * S)], fill=ink)
             d.polygon([(ax, ay - 34 * S), (ax + 7 * S, ay), (ax, ay - 7 * S)], outline=ink, fill=box, width=S)
-            text(d, (ax, ay - 40 * S), "K", f_place, ink, anchor="c")
+            text(d, (ax, ay - 40 * S), "N", f_place, ink, anchor="c")
 
         img = img.resize((W, H), Image.LANCZOS)
         if inset:  # the terminal's inset map (fastfetch): the whole feature, unlabelled, framed
@@ -894,7 +894,7 @@ def main():
     when = dt.datetime.fromisoformat(a.at).replace(tzinfo=tz) if a.at else dt.datetime.now(tz)
     W, H = map(int, (a.size or cfg.get("size", "1920x1080")).split("x"))
     picked = STATE / "sheet"
-    sheet = a.sheet or (picked.read_text().strip() if picked.exists() else "") or cfg.get("sheet", "agri")
+    sheet = a.sheet or (picked.read_text().strip() if picked.exists() else "") or cfg.get("sheet", "istanbul")
     out = a.out if a.out != "-" else str(CACHE / f"print-{when:%H%M}.jpg")
     info, printed = render(sheet, when, out, W, H, a.rail if a.rail is not None else cfg.get("rail", 48), home,
                            legend=not a.no_legend, inset=a.inset, lock_out=a.lock_out, only_if_changed=a.if_changed)

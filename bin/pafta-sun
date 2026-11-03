@@ -19,7 +19,7 @@ sheets_dir=$here/../sheets
 mkdir -p "$cache" "$state"
 
 mapfile -t sheets < <(find "$sheets_dir" -name '*.toml' -printf '%f\n' | sed 's/\.toml$//' | sort)
-current=$(cat "$state/sheet" 2>/dev/null || echo agri)
+current=$(cat "$state/sheet" 2>/dev/null || echo istanbul)
 
 turn() {  # move $1 sheets along the atlas
     local i n=${#sheets[@]}
@@ -61,7 +61,7 @@ for pair in paftaName:.name paftaRegion:.region paftaCoords:.coords paftaScale:.
             paftaPxPerKm:.px_per_km paftaSegPx:.seg_px paftaBarKm:.bar_km paftaNote:.note paftaContour:.contour; do
     lock "${pair%%:*}" "$(jq -r "${pair#*:}" "$st")"
 done
-lock paftaSky "$(jq -r 'if .sun.alt > -1 then "GÜNEŞ  \(.sun.az)°  \(.sun.alt)°  ·  BATIŞ \(.sun.set)" elif .moon.alt > 0 then "AY  \(.moon.az)°  \(.moon.alt)°  ·  %\(.moon.lit)" else "GECE  ·  DOĞUŞ \(.sun.rise)" end' "$st")"
+lock paftaSky "$(jq -r 'if .sun.alt > -1 then "SUN  \(.sun.az)°  \(.sun.alt)°  ·  SETS \(.sun.set)" elif .moon.alt > 0 then "MOON  \(.moon.az)°  \(.moon.alt)°  ·  \(.moon.lit)% LIT" else "NIGHT  ·  SUNRISE \(.sun.rise)" end' "$st")"
 lock paftaNight "$(jq -r 'if .day < 0.5 then "true" else "false" end' "$st")"
 
 [[ $rc == 3 ]] && exit 0   # same light as the print on screen: nothing to redraw
