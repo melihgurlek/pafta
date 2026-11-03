@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy", "scipy", "pillow"]
+# dependencies = ["numpy", "scipy", "pillow", "mapbox-vector-tile"]
 # ///
 """Print one edition of a Pafta map sheet: real terrain, lit by where the sun (or the moon)
 is over you right now.
@@ -32,11 +32,13 @@ DAY = dict(
     paper="#F1EFE8", low="#E5E8DA", mid="#EEEADD", high="#F5F3EE", top="#FBFAF7",
     shadow="#59627F", lit="#FFFAEE", contour="#9A6A42", water="#D4E3EA", waterline="#5E8EAD",
     ink="#24282D", ink2="#686C6E", over="#A8336F", box="#F6F4EE",
+    wood="#D6E2C8", road="#B5452F", road2="#A87B1F", ferry="#2F6690",
 )
 NIGHT = dict(
     paper="#12171C", low="#151B21", mid="#171E25", high="#1A222A", top="#1E262E",
     shadow="#05070A", lit="#7F93A8", contour="#6E553E", water="#0C1217", waterline="#2C4A5F",
     ink="#B4B9B3", ink2="#6E757A", over="#C2588F", box="#141A20",
+    wood="#16211B", road="#B9604D", road2="#9C7F45", ferry="#4F86AE",
 )
 GOLD_LIT, GOLD_SHADOW = "#FFE3B8", "#5E4F86"
 MONTHS = "OCAK ŞUBAT MART NİSAN MAYIS HAZİRAN TEMMUZ AĞUSTOS EYLÜL EKİM KASIM ARALIK".split()
@@ -169,6 +171,97 @@ def water_mask(dem):
     return nd.binary_closing(nd.binary_opening(flat, iterations=2), iterations=2)
 
 
+# ---------------------------------------------------------------- OpenStreetMap (opt-in per sheet)
+OSM_TILES = "https://tiles.openfreemap.org/planet"
+
+
+def osm_for(sheet_id, sheet, W, H):
+    """Roads, rail, ferries, woods and exact water from OpenFreeMap's vector tiles (OpenMapTiles
+    schema), as polylines and polygons in the 2x raster's pixels. Tiles one zoom above the sheet
+    line up with the 2x raster 1:1. Cached per sheet in ~/.cache/pafta/osm."""
+    path = CACHE / "osm" / f"{sheet_id}-{W}x{H}-z{sheet['zoom']}.json"
+    if path.exists():
+        return json.loads(path.read_text())
+    import gzip
+    import mapbox_vector_tile as mvt
+    tj = json.loads(urllib.request.urlopen(urllib.request.Request(OSM_TILES, headers={"User-Agent": "pafta-map-renderer"}), timeout=30).read())
+    url = tj["tiles"][0]
+    z = sheet["zoom"] + 1
+    cx, cy = merc(sheet["lat"], sheet["lon"], z)
+    x0, y0 = cx - W / 2 * S, cy - H / 2 * S
+    out = {k: [] for k in ("water", "wood", "motorway", "trunk", "primary", "rail", "ferry", "bridge")}
+    roads = {"motorway": "motorway", "trunk": "trunk", "primary": "primary"}
+    for tx in range(int(x0 // 256), int((x0 + W * S) // 256) + 1):
+        for ty in range(int(y0 // 256), int((y0 + H * S) // 256) + 1):
+            raw = urllib.request.urlopen(urllib.request.Request(url.format(z=z, x=tx, y=ty), headers={"User-Agent": "pafta-map-renderer"}), timeout=30).read()
+            if raw[:2] == b"\x1f\x8b":
+                raw = gzip.decompress(raw)
+            tile = mvt.decode(raw, default_options={"y_coord_down": True})
+            ext = 4096
+            pt = lambda p: (round(tx * 256 + p[0] * 256 / ext - x0, 1), round(ty * 256 + p[1] * 256 / ext - y0, 1))
+            def lines(g):
+                c = g["coordinates"]
+                return [list(map(pt, c))] if g["type"] == "LineString" else [list(map(pt, l)) for l in c] if g["type"] == "MultiLineString" else []
+            def polys(g):
+                c = g["coordinates"]
+                if g["type"] == "Polygon":
+                    c = [c]
+                elif g["type"] != "MultiPolygon":
+                    return []
+                return [[list(map(pt, ring)) for ring in poly] for poly in c]
+            for f in tile.get("water", {}).get("features", []):
+                if f["properties"].get("class") in ("ocean", "lake", "river"):
+                    out["water"] += polys(f["geometry"])
+            for f in tile.get("landcover", {}).get("features", []):
+                if f["properties"].get("class") in ("wood", "forest"):
+                    out["wood"] += polys(f["geometry"])
+            for f in tile.get("park", {}).get("features", []):
+                out["wood"] += polys(f["geometry"]) if f["properties"].get("class") in ("nature_reserve", "national_park", "forest") else []
+            for f in tile.get("transportation", {}).get("features", []):
+                p = f["properties"]
+                cls, brunnel = p.get("class"), p.get("brunnel")
+                if brunnel == "tunnel":
+                    continue
+                if cls in roads:
+                    out["bridge" if brunnel == "bridge" and cls in ("motorway", "trunk") else roads[cls]] += lines(f["geometry"])
+                elif cls == "rail" and p.get("subclass") in ("rail", "light_rail", None):
+                    out["rail"] += lines(f["geometry"])
+                elif cls == "ferry":
+                    out["ferry"] += lines(f["geometry"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(out))
+    return out
+
+
+def raster_polys(polys, size):
+    """Fill polygons (outer ring, holes) into a boolean mask."""
+    m = Image.new("L", size, 0)
+    d = ImageDraw.Draw(m)
+    for rings in polys:
+        if len(rings[0]) > 2:
+            d.polygon(rings[0], fill=255)
+        for hole in rings[1:]:
+            if len(hole) > 2:
+                d.polygon(hole, fill=0)
+    return np.asarray(m) > 127
+
+
+def dashed(d, pts, fill, width, on, off):
+    """A dashed polyline; the dash pattern runs on across the corners."""
+    period, pos = on + off, 0.0
+    for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+        seg = math.hypot(xb - xa, yb - ya)
+        t = 0.0
+        while t < seg:
+            phase = (pos + t) % period
+            run = min((on - phase) if phase < on else (period - phase), seg - t)
+            if phase < on:
+                p0, p1 = t / seg, (t + run) / seg
+                d.line([(xa + (xb - xa) * p0, ya + (yb - ya) * p0), (xa + (xb - xa) * p1, ya + (yb - ya) * p1)], fill=fill, width=width)
+            t += max(run, 1e-6)
+        pos += seg
+
+
 def normals(z, m, ve):
     gy, gx = np.gradient(z * ve, m)
     nx, ny, nz = -gx, gy, np.ones_like(z)
@@ -287,6 +380,10 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     e = (z - z.min()) / max(z.max() - z.min(), 1)
     stops = [0, 0.3, 0.65, 1]
     tint = np.stack([np.interp(e, stops, [pal[c][i] for c in ("low", "mid", "high", "top")]) for i in range(3)], -1)
+    osm = osm_for(sheet_id, sheet, W, H) if sheet.get("osm") else None
+    if osm:  # the green plate: woods as a flat tint under the shading
+        woods = nd.gaussian_filter(raster_polys(osm["wood"], (Ws, Hs)).astype(np.float64), 1.0)
+        tint = mix(tint, pal["wood"], woods[..., None] * 0.85)
     darken = np.clip(1 - k, 0, 1)[..., None] * (0.62 if day > 0.5 else 0.8)
     col = mix(tint, tint * sh_c * 1.25, darken)
     bright = np.clip((k - 1) / 0.7, 0, 1)[..., None] * (0.45 * day + 0.5 * (1 - day) * power)
@@ -297,6 +394,8 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
 
     # water, with the engraver's water lines along the shore
     wmask = nd.gaussian_filter(nd.zoom(water1.astype(np.float64), S, order=0), S * 0.8) > 0.5
+    if osm:  # mapped water is exact; the flat-ground guess only fills in what the map lacks
+        wmask = raster_polys(osm["water"], (Ws, Hs))
     if wmask.any():
         dist = nd.distance_transform_edt(wmask)
         wl = np.zeros_like(dist)
@@ -311,12 +410,45 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     land = (~wmask)[..., None]
     c1 = contour(zc, sheet.get("contour", 50), 1.05 * S)[..., None] * land
     c2 = contour(zc, sheet.get("index", 250), 2.3 * S)[..., None] * land
-    col = mix(col, pal["contour"], c1 * (0.42 if day > 0.5 else 0.55))
-    col = mix(col, pal["contour"], c2 * (0.78 if day > 0.5 else 0.85))
+    cs = sheet.get("contour_strength", 1.0)
+    col = mix(col, pal["contour"], c1 * (0.42 if day > 0.5 else 0.55) * cs)
+    col = mix(col, pal["contour"], c2 * (0.78 if day > 0.5 else 0.85) * cs)
+
+    base = Image.fromarray((np.clip(col, 0, 1) * 255).astype(np.uint8))
+    if osm:  # the road, rail and ferry plates, drawn once for every output
+        C0 = lambda c, a=255: tuple(int(v * 255) for v in pal[c]) + (a,)
+        lay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        d0 = ImageDraw.Draw(lay)
+        for line in osm["ferry"]:
+            dashed(d0, line, C0("ferry", 200), 2, 11, 7)
+        for line in osm["rail"]:
+            d0.line(line, fill=C0("ink", 210), width=2, joint="curve")
+            for (xa, ya), (xb, yb) in zip(line, line[1:]):  # cross ticks, the old rail symbol
+                seg = math.hypot(xb - xa, yb - ya)
+                for t in np.arange(8, seg, 18):
+                    px, py = xa + (xb - xa) * t / seg, ya + (yb - ya) * t / seg
+                    nx_, ny_ = -(yb - ya) / seg * 3.5, (xb - xa) / seg * 3.5
+                    d0.line([(px - nx_, py - ny_), (px + nx_, py + ny_)], fill=C0("ink", 210), width=2)
+        for line in osm["primary"]:
+            d0.line(line, fill=C0("road2", 120), width=2, joint="curve")
+        # roads support the map, they don't lead it; only the bridges get a full ink casing
+        # a bridge is a bridge when it crosses water; viaducts over land are drawn as road
+        def over_water(line):
+            x, y = line[len(line) // 2]
+            return 0 <= int(y) < Hs and 0 <= int(x) < Ws and bool(wmask[int(y), int(x)])
+        bridges = [l for l in osm["bridge"] if over_water(l)]
+        layers = {"trunk": osm["trunk"], "motorway": osm["motorway"] + [l for l in osm["bridge"] if not over_water(l)],
+                  "bridge": bridges}
+        for kind, case, fillw, ca, fa in (("trunk", 4, 2, 60, 170), ("motorway", 5, 3, 80, 200), ("bridge", 8, 4, 235, 255)):
+            for line in layers[kind]:
+                d0.line(line, fill=C0("ink", ca), width=case, joint="curve")
+            for line in layers[kind]:
+                d0.line(line, fill=C0("road", fa), width=fillw, joint="curve")
+        base = Image.alpha_composite(base.convert("RGBA"), lay).convert("RGB")
 
     def compose(rail, legend, out, inset):
         """Frame, labels and title block over the relief, for one panel margin."""
-        img = Image.fromarray((np.clip(col, 0, 1) * 255).astype(np.uint8))
+        img = base.copy()
         d = ImageDraw.Draw(img)
         C = lambda c: tuple(int(v * 255) for v in pal[c])
         ink, ink2, over, paper = C("ink"), C("ink2"), C("over"), C("paper")
@@ -361,6 +493,8 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                         lab = lab.rotate(-90, expand=True)
                         img.paste(lab, (int(Ws - M + 3 * S), int(py - 45 * S)), lab)
         minute_band("lon"); minute_band("lat")
+        if osm:  # ODbL: the map credits its data
+            text(d, (L, Hs - 7 * S), "© OpenStreetMap katkıcıları", f_coord, ink2)
         d.rectangle([L, T, R, Bt], outline=ink, width=int(1.6 * S))
         d.rectangle([L + B, T + B, R - B, Bt - B], outline=ink, width=int(0.8 * S))
 
