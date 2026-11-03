@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <!-- TODO Plasma 7: Make this an enum. -->
+    <entry name="alwaysShowClock" type="Bool">
+      <label>Show a clock.</label>
+      <default>true</default>
+    </entry>
+    <entry name="hideClockWhenIdle" type="Bool">
+      <label>Hide clock when prompt is hidden.</label>
+      <default>false</default>
+    </entry>
+    <entry name="showMediaControls" type="Bool">
+      <label>If true, shows any currently playing media along with controls to pause it.</label>
+      <default>true</default>
+    </entry>
+    <entry name="paftaName" type="String">
+      <label>Sheet name (written by pafta-sun)</label>
+      <default>PAFTA</default>
+    </entry>
+    <entry name="paftaRegion" type="String">
+      <label>Region</label>
+      <default></default>
+    </entry>
+    <entry name="paftaCoords" type="String">
+      <label>Coordinates</label>
+      <default></default>
+    </entry>
+    <entry name="paftaScale" type="String">
+      <label>Scale</label>
+      <default></default>
+    </entry>
+    <entry name="paftaPxPerKm" type="String">
+      <label>Pixels per kilometre</label>
+      <default>34</default>
+    </entry>
+    <entry name="paftaContour" type="String">
+      <label>Contour interval</label>
+      <default>50</default>
+    </entry>
+    <entry name="paftaSky" type="String">
+      <label>Sun or moon line</label>
+      <default></default>
+    </entry>
+    <entry name="paftaNight" type="String">
+      <label>true at night</label>
+      <default>false</default>
+    </entry>
+  </group>
+
+</kcfg>
