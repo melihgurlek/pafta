@@ -44,12 +44,17 @@ esac
 exec 9>"$cache/.lock"
 flock -w 60 9
 out="$cache/print-$(date +%s).jpg"
-"$here/pafta-print" --no-legend --state "$cache/state.json.new" --inset "$cache/inset.png.new" --lock-out "$cache/lock-new.jpg" --out "$out" 2>/dev/null >/dev/null
+# a plain tick only prints when the light has visibly changed; turning a sheet always prints
+changed=--if-changed
+[[ -n ${1:-} ]] && changed=
+rc=0
+"$here/pafta-print" --no-legend $changed --state "$cache/state.json.new" --inset "$cache/inset.png.new" \
+    --lock-out "$cache/lock-new.jpg" --out "$out" 2>/dev/null >/dev/null || rc=$?
+[[ $rc == 0 || $rc == 3 ]] || exit "$rc"
 mv "$cache/state.json.new" "$cache/state.json"
-mv "$cache/inset.png.new" "$cache/inset.png"
-mv "$cache/lock-new.jpg" "$cache/lock.jpg"   # even margins, for the lock screen
 
-# the lock screen's legend box reads the sheet from kscreenlockerrc (the greeter can't read files)
+# the lock screen's legend box reads the sheet from kscreenlockerrc (the greeter can't read
+# files); its sun line changes every tick, so this runs whether or not there's a new print
 lock() { kwriteconfig6 --file kscreenlockerrc --group Greeter --group LnF --group General --key "$1" "$2"; }
 st=$cache/state.json
 for pair in paftaName:.name paftaRegion:.region paftaCoords:.coords paftaScale:.scale \
@@ -58,6 +63,10 @@ for pair in paftaName:.name paftaRegion:.region paftaCoords:.coords paftaScale:.
 done
 lock paftaSky "$(jq -r 'if .sun.alt > -1 then "GÜNEŞ  \(.sun.az)°  \(.sun.alt)°  ·  BATIŞ \(.sun.set)" elif .moon.alt > 0 then "AY  \(.moon.az)°  \(.moon.alt)°  ·  %\(.moon.lit)" else "GECE  ·  DOĞUŞ \(.sun.rise)" end' "$st")"
 lock paftaNight "$(jq -r 'if .day < 0.5 then "true" else "false" end' "$st")"
+
+[[ $rc == 3 ]] && exit 0   # same light as the print on screen: nothing to redraw
+mv "$cache/inset.png.new" "$cache/inset.png"
+mv "$cache/lock-new.jpg" "$cache/lock.jpg"   # even margins, for the lock screen
 # Plasma only crossfades to a new file name; keep the one on screen until the new one is up
 plasma-apply-wallpaperimage "$out" >/dev/null
 find "$cache" -maxdepth 1 -name 'print-*.jpg' ! -name "${out##*/}" -mmin +1 -delete
