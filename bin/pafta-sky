@@ -11,7 +11,7 @@ Facing south from İstanbul, the horizon along the bottom over the sea. Stars (Y
 constellation figures and the Milky Way come from d3-celestial (BSD-3, Olaf Frohn) and are
 cached in ~/.cache/pafta/sky; the sun, moon and planets are computed here with PyEphem.
 """
-import argparse, datetime as dt, glob, json, math, os, subprocess, urllib.request
+import argparse, datetime as dt, functools, glob, json, math, os, subprocess, urllib.request
 from pathlib import Path
 
 import ephem
@@ -97,6 +97,12 @@ class Sky:
         alt = np.clip(alt, -1.4, 1.4)
         return self.cx + self.k * d, self.hy - self.k * np.log(np.tan(math.pi / 4 + alt / 2))
 
+    def eq_of_altaz(self, alt, az):
+        sp, cp = math.sin(self.phi), math.cos(self.phi)
+        dec = np.arcsin(np.clip(sp * np.sin(alt) + cp * np.cos(alt) * np.cos(az), -1, 1))
+        ha = np.arctan2(-np.sin(az) * np.cos(alt), np.sin(alt) * cp - np.cos(alt) * np.cos(az) * sp)
+        return np.degrees(self.lst - ha) % 360, np.degrees(dec)
+
     def eq_of_pixels(self, w, h, s):
         """RA, Dec (degrees) of a w x h grid of pixel centres at scale s (for raster layers)."""
         x = (np.arange(w, dtype=np.float32) + 0.5) * s
@@ -107,6 +113,23 @@ class Sky:
         dec = np.arcsin(np.clip(sp * np.sin(alt) + cp * np.cos(alt) * np.cos(az), -1, 1))
         ha = np.arctan2(-np.sin(az) * np.cos(alt), np.sin(alt) * cp - np.cos(alt) * np.cos(az) * sp)
         return np.degrees(self.lst - ha) % 360, np.degrees(dec), alt
+
+
+@functools.lru_cache(1)
+def milky_way():
+    """The Milky Way's five brightness levels rasterised in RA/Dec (plate carrée)."""
+    mw = data("mw.json")["features"]
+    ew, eh = 2048, 1024
+    lv = np.zeros((eh, ew), np.float32)
+    for i, f in enumerate(mw):
+        m = np.zeros((eh, ew), bool)  # rings combine even-odd, as d3 fills them
+        for poly in f["geometry"]["coordinates"]:
+            for ring in poly:
+                r = Image.new("1", (ew, eh), 0)
+                ImageDraw.Draw(r).polygon([((lon + 180) / 360 * ew, (90 - lat) / 180 * eh) for lon, lat in ring], fill=1)
+                m ^= np.asarray(r, bool)
+        lv = np.maximum(lv, m * np.float32((i + 1) / len(mw)))
+    return lv, ew, eh
 
 
 def gc(a, b, step=1.0):
@@ -166,17 +189,7 @@ def render(when, W, H, rail):
     img = Image.new("RGB", (W * Z, H * Z), bg)
 
     # the Milky Way: rasterised in RA/Dec, then looked up per screen pixel, so it can wrap freely
-    mw = data("mw.json")["features"]
-    ew, eh = 2048, 1024
-    lv = np.zeros((eh, ew), np.float32)
-    for i, f in enumerate(mw):
-        m = np.zeros((eh, ew), bool)  # rings combine even-odd, as d3 fills them
-        for poly in f["geometry"]["coordinates"]:
-            for ring in poly:
-                r = Image.new("1", (ew, eh), 0)
-                ImageDraw.Draw(r).polygon([((lon + 180) / 360 * ew, (90 - lat) / 180 * eh) for lon, lat in ring], fill=1)
-                m ^= np.asarray(r, bool)
-        lv = np.maximum(lv, m * np.float32((i + 1) / len(mw)))
+    lv, ew, eh = milky_way()
     s = 2  # one lookup per 2x2 screen pixels; the band is soft anyway
     ra, dec, _ = sky.eq_of_pixels(W * Z // s, H * Z // s, s)
     band = lv[np.clip(((90 - dec) / 180 * eh).astype(int), 0, eh - 1), np.clip(((ra + 180) % 360 / 360 * ew).astype(int), 0, ew - 1)]
@@ -391,16 +404,215 @@ def render(when, W, H, rail):
     return img.resize((W, H), Image.LANCZOS)
 
 
+def star_finder(when, R):
+    """The sky now as a star-finder disc for the chart table. Map-oriented (north up, east right,
+    a celestial globe seen from outside) so its bearing ring agrees with the chart under it: the
+    moon at 120° on the disc stands at 120° from you on the map. R is the outer radius in px."""
+    sky = Sky(when, 100, 100, 0)
+    sun = ephem.Sun(sky.obs)
+    s_alt = math.degrees(float(sun.alt))
+    night = 1.0 if s_alt < -6 else 0.0
+    pal = {k: mix(PAPER[k], NIGHT[k], night) for k in PAPER}
+    hexs = {k: "#%02x%02x%02x" % v for k, v in pal.items()}
+    bg, ink, over = pal["bg"], pal["ink"], pal["over"]
+    Rz, ring = R * Z, 30 * Z
+    Ri = Rz - ring
+    size = int(2 * Rz + 4 * Z)
+    c = size / 2
+
+    def P(alt, az):
+        r = Ri * (math.pi / 2 - np.asarray(alt)) / (math.pi / 2)
+        return c + r * np.sin(az), c - r * np.cos(az)
+
+    # the sky layer, masked to the horizon circle at the end
+    layer = Image.new("RGB", (size, size), bg)
+    lv, ew, eh = milky_way()
+    yy, xx = np.mgrid[0:size, 0:size].astype(np.float32) + 0.5
+    dx, dy = xx - c, c - yy
+    rr = np.hypot(dx, dy)
+    alt = math.pi / 2 - np.minimum(rr / Ri, 1) * math.pi / 2
+    ra, dec = sky.eq_of_altaz(alt, np.arctan2(dx, dy))
+    band = lv[np.clip(((90 - dec) / 180 * eh).astype(int), 0, eh - 1), np.clip(((ra + 180) % 360 / 360 * ew).astype(int), 0, ew - 1)]
+    band = np.asarray(Image.fromarray((band * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(4 * Z)), np.float32)[..., None] / 255
+    base = np.asarray(layer, np.float32)
+    layer = Image.fromarray((base * (1 - band * 0.95) + np.array(pal["mw"], np.float32) * band * 0.95).astype(np.uint8))
+    d = ImageDraw.Draw(layer)
+
+    grid = mix(hexs["grid"], hexs["bg"], 0.55)
+    for a_ in (30, 60):
+        r = Ri * (90 - a_) / 90
+        pts = [(c + r * math.sin(math.radians(q)), c - r * math.cos(math.radians(q))) for q in range(0, 361, 2)]
+        dashed(d, pts, grid, Z, 4 * Z, 4 * Z)
+    d.line([(c - 6 * Z, c), (c + 6 * Z, c)], fill=grid, width=Z)
+    d.line([(c, c - 6 * Z), (c, c + 6 * Z)], fill=grid, width=Z)
+
+    lam = np.radians(np.linspace(0, 360, 721))
+    eps = math.radians(23.44)
+    e_alt, e_az = sky.hor(np.degrees(np.arctan2(np.sin(lam) * math.cos(eps), np.cos(lam))) % 360,
+                          np.degrees(np.arcsin(np.sin(lam) * math.sin(eps))))
+    ex, ey = P(e_alt, e_az)
+    keep = e_alt > -0.05
+    seg = []
+    for i in range(len(ex)):
+        if keep[i]:
+            seg.append((float(ex[i]), float(ey[i])))
+        elif seg:
+            dashed(d, seg, mix(hexs["ecl"], hexs["bg"], 0.2), Z, 7 * Z, 5 * Z) if len(seg) > 1 else None
+            seg = []
+    if len(seg) > 1:
+        dashed(d, seg, mix(hexs["ecl"], hexs["bg"], 0.2), Z, 7 * Z, 5 * Z)
+
+    fig = mix(hexs["ink2"], hexs["bg"], 0.35 + 0.15 * night)
+    for f in data("constellations.lines.json")["features"]:
+        for line in f["geometry"]["coordinates"]:
+            for a, b in zip(line, line[1:]):
+                ra_, dc = gc(a, b, 2.0)
+                la, lz = sky.hor(ra_, dc)
+                if (la < -0.02).all():
+                    continue
+                x, y = P(la, lz)
+                d.line(list(zip(x.tolist(), y.tolist())), fill=fig, width=Z)
+
+    if night < 1:  # the sun's path today, with its hours
+        o = ephem.Observer()
+        o.lat, o.lon, o.pressure = str(LAT), str(LON), 0
+        day0 = when.replace(hour=0, minute=0, second=0, microsecond=0)
+        pts, hours = [], []
+        for m in range(0, 24 * 60 + 1, 6):
+            t_ = day0 + dt.timedelta(minutes=m)
+            o.date = ephem.Date(t_.astimezone(dt.timezone.utc).replace(tzinfo=None))
+            b_ = ephem.Sun(o)
+            if float(b_.alt) > 0:
+                x, y = P(float(b_.alt), float(b_.az))
+                pts.append((float(x), float(y)))
+                if m % 60 == 0:
+                    hours.append((t_.hour, float(x), float(y)))
+        if len(pts) > 1:
+            dashed(d, pts, mix(hexs["over"], hexs["bg"], 0.4), Z, 3 * Z, 4 * Z)
+        f_h = font("IBMPlexMono-Regular", 9 * Z)
+        for h_, x, y in hours:
+            d.ellipse([x - 2 * Z, y - 2 * Z, x + 2 * Z, y + 2 * Z], fill=over)
+            text(d, (x, y - 6 * Z), f"{h_:02d}", f_h, over, anchor="c", halo=(bg, 3 * Z))
+
+    stars = data("stars.6.json")["features"]
+    mags = np.array([f["properties"]["mag"] for f in stars])
+    sa, sz = sky.hor(np.array([f["geometry"]["coordinates"][0] for f in stars]) % 360,
+                     np.array([f["geometry"]["coordinates"][1] for f in stars]))
+    sx, sy = P(sa, sz)
+    for i in np.argsort(-mags):
+        if mags[i] > 5.3 or sa[i] < 0:
+            continue
+        r = max(0.5, (5.8 - mags[i]) * 0.62) * Z
+        g = 1.4 * Z
+        d.ellipse([sx[i] - r - g, sy[i] - r - g, sx[i] + r + g, sy[i] + r + g], fill=layer.getpixel((int(sx[i]), int(sy[i]))))
+        d.ellipse([sx[i] - r, sy[i] - r, sx[i] + r, sy[i] + r], fill=ink if mags[i] < 4 else mix(hexs["ink"], hexs["bg"], 0.3))
+
+    placed = []
+    def free(b):
+        return not any(b[0] < q[2] and q[0] < b[2] and b[1] < q[3] and q[1] < b[3] for q in placed)
+    def label(x, y, s, f, fill, anchor="l"):
+        w = d.textlength(s, font=f)
+        x0 = x - (w if anchor == "r" else w / 2 if anchor == "c" else 0)
+        box = (x0 - 3 * Z, y - f.size, x0 + w + 3 * Z, y + 3 * Z)
+        if free(box) and math.hypot(x0 + w / 2 - c, y - c) < Ri - 12 * Z:
+            placed.append(box)
+            text(d, (x, y), s, f, fill, anchor=anchor, halo=(bg, 3 * Z))
+
+    f_pl = font("IBMPlexSerif-Italic", 12 * Z)
+    if s_alt > -1:
+        x, y = (float(v) for v in P(float(sun.alt), float(sun.az)))
+        d.ellipse([x - 13 * Z, y - 13 * Z, x + 13 * Z, y + 13 * Z], fill=bg)
+        d.ellipse([x - 7 * Z, y - 7 * Z, x + 7 * Z, y + 7 * Z], outline=over, width=2 * Z)
+        d.ellipse([x - 2 * Z, y - 2 * Z, x + 2 * Z, y + 2 * Z], fill=over)
+        for kk in range(12):
+            q = kk * math.pi / 6
+            d.line([(x + math.cos(q) * 9 * Z, y + math.sin(q) * 9 * Z), (x + math.cos(q) * 12 * Z, y + math.sin(q) * 12 * Z)], fill=over, width=Z)
+        placed.append((x - 13 * Z, y - 13 * Z, x + 13 * Z, y + 13 * Z))
+    for body in (ephem.Mercury(), ephem.Venus(), ephem.Mars(), ephem.Jupiter(), ephem.Saturn()):
+        body.compute(sky.obs)
+        if float(body.alt) < 0:
+            continue
+        x, y = (float(v) for v in P(float(body.alt), float(body.az)))
+        d.ellipse([x - 8 * Z, y - 8 * Z, x + 8 * Z, y + 8 * Z], fill=bg)
+        d.ellipse([x - 3.5 * Z, y - 3.5 * Z, x + 3.5 * Z, y + 3.5 * Z], fill=over)
+        d.ellipse([x - 7 * Z, y - 7 * Z, x + 7 * Z, y + 7 * Z], outline=over, width=Z)
+        placed.append((x - 8 * Z, y - 8 * Z, x + 8 * Z, y + 8 * Z))
+        label(x + 11 * Z, y + 4 * Z, body.name, f_pl, over)
+    moon = ephem.Moon(sky.obs)
+    if float(moon.alt) > 0:
+        x, y = (float(v) for v in P(float(moon.alt), float(moon.az)))
+        Rm = 11 * Z
+        ux, uy = (float(v) for v in P(float(sun.alt), float(sun.az)))
+        ux, uy = ux - x, uy - y
+        n = math.hypot(ux, uy) or 1
+        ux, uy = ux / n, uy / n
+        sz_ = int(2 * Rm + 6 * Z)
+        my, mx = np.mgrid[0:sz_, 0:sz_].astype(np.float32) - sz_ / 2 + 0.5
+        u, w = mx * ux + my * uy, -mx * uy + my * ux
+        lit = moon.moon_phase
+        m_ = (mx * mx + my * my <= Rm * Rm) & (u > (1 - 2 * lit) * np.sqrt(np.maximum(Rm * Rm - w * w, 0)))
+        d.ellipse([x - Rm - 3 * Z, y - Rm - 3 * Z, x + Rm + 3 * Z, y + Rm + 3 * Z], fill=bg)
+        layer.paste(Image.new("RGB", (sz_, sz_), over), (int(x - sz_ / 2), int(y - sz_ / 2)), Image.fromarray((m_ * 255).astype(np.uint8)))
+        d.ellipse([x - Rm, y - Rm, x + Rm, y + Rm], outline=over, width=Z)
+        placed.append((x - Rm, y - Rm, x + Rm, y + Rm))
+        label(x + Rm + 6 * Z, y + 4 * Z, f"Moon {lit * 100:.0f}%", f_pl, over)
+    names = data("starnames.json")
+    f_st = font("IBMPlexSerif-Italic", 10 * Z)
+    for i in np.argsort(mags)[:40]:
+        nm = names.get(str(stars[i]["id"]), {}).get("name", "")
+        if nm and mags[i] < 1.5 and sa[i] > math.radians(5):
+            label(sx[i] + 6 * Z, sy[i] + 4 * Z, nm, f_st, ink)
+    f_con = font("IBMPlexSans-Regular", 8 * Z)
+    for f in data("constellations.json")["features"]:
+        if int(f["properties"].get("rank", 3)) > 1:
+            continue
+        lr, ld = f["geometry"]["coordinates"]
+        la, lz = sky.hor(np.array([lr % 360]), np.array([ld]))
+        if la[0] > math.radians(12):
+            x, y = (float(v[0]) for v in P(la, lz))
+            label(x, y, f["properties"]["name"].upper(), f_con, mix(hexs["ink2"], hexs["bg"], 0.1), anchor="c")
+
+    # the disc: the bearing ring of a chart's compass rose, the sky inside it
+    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    od = ImageDraw.Draw(out)
+    od.ellipse([c - Rz, c - Rz, c + Rz, c + Rz], fill=pal["ground"] + (255,), outline=ink + (255,), width=Z)
+    od.ellipse([c - Rz + 4 * Z, c - Rz + 4 * Z, c + Rz - 4 * Z, c + Rz - 4 * Z], outline=ink + (255,), width=Z)
+    m = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(m).ellipse([c - Ri, c - Ri, c + Ri, c + Ri], fill=255)
+    out.paste(layer, (0, 0), m)
+    od.ellipse([c - Ri, c - Ri, c + Ri, c + Ri], outline=ink + (255,), width=Z)
+    f_deg = font("IBMPlexMono-Regular", 9 * Z)
+    f_card = font("IBMPlexSans-SemiBold", 12 * Z)
+    for deg in range(360):
+        q = math.radians(deg)
+        L = 9 * Z if deg % 10 == 0 else (6 * Z if deg % 5 == 0 else 3 * Z)
+        od.line([(c + math.sin(q) * Ri, c - math.cos(q) * Ri), (c + math.sin(q) * (Ri + L), c - math.cos(q) * (Ri + L))], fill=ink + (255,), width=Z)
+        if deg % 30 == 0:
+            lx, ly = c + math.sin(q) * (Ri + 19 * Z), c - math.cos(q) * (Ri + 19 * Z) + 4 * Z
+            card = {0: "N", 90: "E", 180: "S", 270: "W"}.get(deg)
+            text(od, (lx, ly + (Z if card else 0)), card or f"{deg:03d}", f_card if card else f_deg, (over if deg == 0 else ink) + (255,), anchor="c")
+    return out.resize((size // Z, size // Z), Image.LANCZOS)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--at")
     ap.add_argument("--out", default="sky.png")
     ap.add_argument("--size", default="1920x1080")
     ap.add_argument("--rail", type=int, default=48)
+    ap.add_argument("--onto", help="a chart print to lay the star-finder disc on")
+    ap.add_argument("--disc", default="400,770,290", help="the disc's centre and radius on it: x,y,r")
     a = ap.parse_args()
     when = dt.datetime.fromisoformat(a.at).replace(tzinfo=TZ) if a.at else dt.datetime.now(TZ)
     W, H = map(int, a.size.split("x"))
-    render(when, W, H, a.rail).save(a.out)
+    if a.onto:
+        x, y, r = map(int, a.disc.split(","))
+        chart = Image.open(a.onto).convert("RGB")
+        disc = star_finder(when, r)
+        chart.paste(disc, (x - disc.width // 2, y - disc.height // 2), disc)
+        chart.save(a.out)
+    else:
+        render(when, W, H, a.rail).save(a.out)
 
 
 if __name__ == "__main__":
