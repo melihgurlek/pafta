@@ -18,7 +18,7 @@ import argparse, datetime as dt, glob, io, json, math, os, subprocess, sys, toml
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from scipy import ndimage as nd
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -322,14 +322,11 @@ def bathy_for(sheet_id, sheet, to_ll, Ws, Hs):
     return nd.zoom(depth, 2, order=1)[:Hs, :Ws]
 
 
-def chart_base(sheet_id, sheet, osm, k, z, day, pal, to_ll, mpp, Ws, Hs):
-    """Water as the subject: depth bands from shallow blue to deep paper, depth contours, a shore
-    line. Land the way an Admiralty chart draws it: flat paper, the town as one quiet tint, 50 m
-    contours in the brown plate, only the motorways, a breath of relief. No street grid, no parks:
-    those make a chart read as a web map."""
-    # the coast is the line everything hangs on: rasterised at 2x for a soft, exact edge. Ponds
-    # and pools go, judged on the merged water: tiles cut the sea into pieces, and dropping the
-    # small pieces leaves square bites out of the shore
+def chart_coast(osm, Ws, Hs):
+    """The coast is the line everything hangs on: rasterised at 2x for a soft, exact edge. Ponds
+    and pools go, judged on the merged water: tiles cut the sea into pieces, and dropping the
+    small pieces leaves square bites out of the shore. Returns water coverage, the shore line's
+    coverage and the water mask."""
     up = 2 / S
     water2 = raster_polys([[[(x * up, y * up) for x, y in ring] for ring in poly] for poly in osm["water"]],
                           (int(Ws * up), int(Hs * up)))
@@ -340,45 +337,34 @@ def chart_base(sheet_id, sheet, osm, k, z, day, pal, to_ll, mpp, Ws, Hs):
     cov = lambda m: m.reshape(Hs, int(up), Ws, int(up)).mean((1, 3), dtype=np.float32)
     water_cov = cov(water2)
     shore_cov = cov(water2 & ~nd.binary_erosion(water2, iterations=2))
-    del water2
-    water = water_cov > 0.5
+    return water_cov, shore_cov, water_cov > 0.5
+
+
+def engraved_base(path, day, water_cov, Ws, Hs):
+    """A sheet's engraving (an illustration traced over this renderer's own plate, so the coast
+    lines up) as the base: balanced to the palette's paper by day; at night its line work is
+    lifted off the paper and printed in soft blue-grey on the slate."""
+    img = Image.open(path).convert("RGB").resize((Ws, Hs), Image.LANCZOS).filter(ImageFilter.UnsharpMask(1.2, 60, 2))
+    a = np.asarray(img, np.float32) / 255
+    del img
+    paper = np.percentile(a[: Hs // 4, -Ws // 5:].reshape(-1, 3), 90, axis=0)  # a corner of bare land
+    if day > 0.5:
+        return np.clip(a * (rgb(CHART["land"][0]) / paper), 0, 1)
+    lum = (a @ np.array([0.3, 0.55, 0.15], np.float32)) / float(paper @ np.array([0.3, 0.55, 0.15]))
+    ink = np.clip((1 - lum) * 1.6, 0, 1)[..., None]
+    wc = nd.gaussian_filter(water_cov, 1.0)[..., None]
+    ground = mix(rgb(CHART["land"][1]), rgb(CHART["bands"][1][2]), wc)
+    line = mix(rgb("#8C9296"), rgb("#3E6A8A"), wc)
+    return mix(ground, line, ink * 0.75)
+
+
+def chart_base(sheet_id, sheet, osm, k, day, pal, to_ll, mpp, Ws, Hs):
+    """Water as the subject: depth bands from shallow blue to deep paper, depth contours, a shore
+    line. Land is quiet paper with a breath of relief and nothing else: streets made it a web map,
+    and a town tint, contours and roads made it a cluttered one."""
+    water_cov, shore_cov, water = chart_coast(osm, Ws, Hs)
     land = np.ones((Hs, Ws, 3), np.float32) * chart_colour("land", day)
     land = mix(land, land * rgb("#59627F") * 1.25, np.clip(1 - k, 0, 1)[..., None] * (0.07 if day > 0.5 else 0.2))
-    # the town, generalised the way a chart does it: wherever the streets are dense, one tint
-    streets = Image.new("L", (Ws, Hs), 0)
-    ds = ImageDraw.Draw(streets)
-    for kind in ("street", "primary", "trunk"):
-        for line in osm[kind]:
-            ds.line([(x, y) for x, y in line], fill=255, width=1)
-    dense = nd.gaussian_filter(np.asarray(streets, np.float32) / 255, 14 * S)
-    del streets, ds
-    built = nd.gaussian_filter((dense > 0.085).astype(np.float32), 2.0 * S) * ~water
-    land = mix(land, chart_colour("built", day), built[..., None])
-    del dense, built
-    # the shape of the hills: 50 m contours, every 100 m a little heavier
-    zc = nd.gaussian_filter(z, 3.2 * S)
-    dry = (~water).astype(np.float32)
-    for interval, width, a_ in ((50, 1.0, 0.30), (100, 1.5, 0.42)):
-        line = contour(zc, interval, width * S) * dry * (zc > interval / 2)  # no sea-level line
-        land = mix(land, pal["contour"], (line * a_ * (1 if day > 0.5 else 1.3))[..., None])
-    # spot heights: the highest hilltops, well apart
-    peaks = (zc == nd.maximum_filter(zc, size=int(160 * S))) & (zc > 90) & ~water
-    spots = []
-    for yy, xx in sorted(np.argwhere(peaks), key=lambda p: -zc[p[0], p[1]]):
-        if all((yy - a) ** 2 + (xx - b) ** 2 > (220 * S) ** 2 for a, b, _ in spots):
-            spots.append((int(yy), int(xx), int(round(float(z[yy, xx])))))
-        if len(spots) == 6:
-            break
-    del zc, dry
-    # only the motorways and the bridges' approaches, as one quiet hairline
-    roads = Image.new("L", (Ws * 2, Hs * 2), 0)
-    dr = ImageDraw.Draw(roads)
-    for kind in ("motorway", "bridge"):
-        for line in osm[kind]:
-            dr.line([(x * up, y * up) for x, y in line], fill=255, width=2, joint="curve")
-    roads = np.asarray(roads.resize((Ws, Hs), Image.BOX)).astype(np.float32) / 255
-    land = mix(land, pal["ink"], (roads * (0.32 if day > 0.5 else 0.3))[..., None])
-    del roads
     depth = bathy_for(sheet_id, sheet, to_ll, Ws, Hs).astype(np.float32)
     depth = nd.gaussian_filter(np.where(water, np.clip(depth, 0.5, None), 0), 3 * S / 2) * water
     wcol = np.zeros((Hs, Ws, 3), np.float32)
@@ -392,10 +378,10 @@ def chart_base(sheet_id, sheet, osm, k, z, day, pal, to_ll, mpp, Ws, Hs):
         iso = np.maximum(iso, (nd.binary_dilation(m) & ~m & water) * (0.9 if d0 in (10, 50) else 0.55))
     col = mix(col, chart_colour("iso", day), nd.gaussian_filter(iso, 0.7)[..., None] * 0.8)
     col = mix(col, pal["ink"], shore_cov[..., None] * 0.85)
-    return col, water, depth, spots
+    return col, water, depth
 
 
-def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, rose_label, spots=()):
+def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, rose_label):
     """Ferries, bridges, honest soundings, lights, conspicuous objects and the compass rose.
     Drawn on a transparent 2x overlay (thin dashes and hairlines need the resolution), reduced,
     and laid over the print. Sizes below are in overlay pixels."""
@@ -408,8 +394,8 @@ def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, ro
     C = lambda c: tuple(int(v * 255) for v in pal[c])
     ink, over, paper = C("ink"), C("over"), tuple(int(v * 255) for v in chart_colour("land", day))
     snd = tuple(int(v * 255) for v in chart_colour("sounding", day))
-    for line in osm["ferry"]:
-        dashed(d, [(x * up, y * up) for x, y in line], tuple(int(v * 255) for v in chart_colour("iso", day)) + (190,), 2, 9, 9)
+    for line in osm["ferry"] if depth is not None else []:
+        dashed(d, [(x * up, y * up) for x, y in line], tuple(int(v * 255) for v in chart_colour("iso", day)) + (110,), 2, 10, 12)
     for line in osm["bridge"]:
         x, y = line[len(line) // 2]
         if 0 <= int(y) < Hs and 0 <= int(x) < Ws and water[int(y), int(x)]:
@@ -421,7 +407,7 @@ def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, ro
     R = 105 * Z
     # soundings only in open water, 650 m from any shore: in the narrows EMODnet's 115 m cells
     # average the channel into its banks and would print depths far too shallow
-    far = nd.distance_transform_edt(water) * (mpp / S) > 650
+    far = (nd.distance_transform_edt(water) * (mpp / S) > 650) if depth is not None else np.zeros_like(water)
     f_snd = font("IBMPlexSans-Regular", 10 * Z)
     rng = np.random.default_rng(7)
     step = 6 * S
@@ -432,7 +418,7 @@ def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, ro
         oy, ox = yy * up, xx * up
         if (oy - ry) ** 2 + (ox - rx) ** 2 < (R + 40 * Z) ** 2:
             continue
-        if any((oy - a) ** 2 + (ox - b) ** 2 < (46 * Z) ** 2 for a, b in placed):
+        if any((oy - a) ** 2 + (ox - b) ** 2 < (72 * Z) ** 2 for a, b in placed):  # sparse: a hint of depth, not a table
             continue
         if depth[yy, xx] < 2:
             continue
@@ -451,15 +437,6 @@ def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, ro
             d.ellipse([x - 4 * Z, y - 4 * Z, x + 4 * Z, y + 4 * Z], outline=ink, width=Z)
             d.ellipse([x - Z, y - Z, x + Z, y + Z], fill=ink)
             text(d, (x + 8 * Z, y + 4 * Z), lab["name"], f_small, ink, track=0.05, halo=(paper, 3 * Z))
-    f_h = font("IBMPlexSans-Italic", 9 * Z)
-    brown = C("contour")
-    named = [P(lab["lat"], lab["lon"]) for lab in sheet.get("label", [])]
-    for yy, xx, h in spots:  # spot heights in the brown plate, clear of the named places
-        x, y = xx * up, yy * up
-        if any((x - a) ** 2 + (y - b) ** 2 < (90 * Z) ** 2 for a, b in named):
-            continue
-        d.ellipse([x - 1.5 * Z, y - 1.5 * Z, x + 1.5 * Z, y + 1.5 * Z], fill=brown)
-        text(d, (x + 5 * Z, y + 4 * Z), f"{h}", f_h, brown, halo=(paper, 2 * Z))
     if rose:  # the compass rose, with the sun (or moon) on its ring
         deep = tuple(int(v * 255) for v in chart_colour("bands", day, 4))
         arm = tuple(int(v * 255) for v in mix(pal["ink"], chart_colour("bands", day, 4), 0.3))
@@ -592,7 +569,8 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     mpp = 156543.03392 * math.cos(math.radians(lat0)) / 2 ** sheet["zoom"]
     chart = sheet.get("style") == "chart"
     bar_km = next(b for b in (10, 5, 2, 1, 0.5) if b * 1000 / mpp <= 180)  # the bar fits the box
-    note = "SEA DEPTHS IN METRES" if chart else f"CONTOUR LINES EVERY {sheet.get('contour', 50)} M"
+    # what the numbers on the sheet mean; an engraving has none
+    note = "" if sheet.get("engraving") else "SEA DEPTHS IN METRES" if chart else f"CONTOUR LINES EVERY {sheet.get('contour', 50)} M"
     diag_mm = home[2] * 25.4
     scale = mpp * 1000 / (diag_mm / math.hypot(W, H))
     scale_txt = f"1 : {round(scale, -3):,.0f}".replace(",", " ")
@@ -636,7 +614,12 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     _ll = lambda px, py: unmerc(px / S + gx - W / 2, py / S + gy - H / 2, sheet["zoom"])
     osm = osm_for(sheet_id, sheet, W, H) if (sheet.get("osm") or chart) else None
     if chart:  # İstanbul is a strait, not a mountain: draw it the way sailors do
-        col, wmask, depth, spots = chart_base(sheet_id, sheet, osm, k, z, day, pal, _ll, mpp, Ws, Hs)
+        if sheet.get("engraving"):  # an engraved illustration of the sheet as the base
+            water_cov, _, wmask = chart_coast(osm, Ws, Hs)
+            col, depth = engraved_base(SHEETS / sheet["engraving"], day, water_cov, Ws, Hs), None
+            del water_cov
+        else:
+            col, wmask, depth = chart_base(sheet_id, sheet, osm, k, day, pal, _ll, mpp, Ws, Hs)
         del k
         pal["water"] = chart_colour("bands", day, 2)
         zc = None
@@ -699,7 +682,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
             rose_az, rose_label = m_az, f"MOON {m_az:.0f}°"
         else:
             rose_az, rose_label = None, ""
-        chart_marks(base, sheet, osm, wmask, depth, day, pal, _px, mpp, rose_az, rose_label, spots)
+        chart_marks(base, sheet, osm, wmask, depth, day, pal, _px, mpp, rose_az, rose_label)
     elif osm:  # the road, rail and ferry plates, drawn once for every output
         C0 = lambda c, a=255: tuple(int(v * 255) for v in pal[c]) + (a,)
         lay = Image.new("RGBA", base.size, (0, 0, 0, 0))

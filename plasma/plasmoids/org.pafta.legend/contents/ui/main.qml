@@ -179,6 +179,7 @@ PlasmoidItem {
             Caps {
                 Layout.topMargin: 10
                 text: root.sheet.note || ""
+                visible: text !== ""
                 color: root.ink2
             }
 

@@ -51,8 +51,18 @@ sheet_keys() {
     done
 }
 
+# put a plate up. Plasma only redraws for a new file name, so this alternates between the
+# plate's two names (the sheet's own file and the link Kigae's manifest points at)
+put_up() {
+    local a=$prints/$current-$1.jpg b=$prints/$1.jpg on
+    on=$(grep -m1 '^Image=file://' "${XDG_CONFIG_HOME:-$HOME/.config}/plasma-org.kde.plasma.desktop-appletsrc" 2>/dev/null || true)
+    [[ $on == *"$a" ]] && a=$b
+    plasma-apply-wallpaperimage "$a" >/dev/null
+}
+
 # print a plate only when it's missing or older than its sheet or the renderer. A failed print
 # (no network on a first run, say) says so in the journal and leaves the old plate in place.
+reprinted=""
 print_plates() {
     local p f
     exec 9>"$cache/.lock"
@@ -69,6 +79,7 @@ print_plates() {
             mv "$prints/.lock-new.jpg" "$prints/$current-lock-$p.jpg"
             mv "$prints/.inset-new.png" "$prints/$current-inset-$p.png"
             mv "$prints/.new.jpg" "$f"
+            reprinted+=" $p"
         fi
         # the fixed names Kigae's manifest points at follow the current sheet
         ln -sfn "$current-$p.jpg" "$prints/$p.jpg"
@@ -87,7 +98,7 @@ mood() {
 show_sheet() {
     print_plates
     mood
-    plasma-apply-wallpaperimage "$prints/$current-$(plate_now).jpg" >/dev/null
+    put_up "$(plate_now)"
     almanac
     sheet_keys
 }
@@ -95,7 +106,8 @@ show_sheet() {
 case ${1:-} in
     "") almanac ;;
     prints) print_plates ;;
-    mood) print_plates; mood; sheet_keys ;;
+    mood) print_plates; mood; sheet_keys
+          [[ $reprinted == *$(plate_now)* ]] && put_up "$(plate_now)" ;;  # a new print of the plate on screen
     sheet) [[ -f $sheets_dir/${2:-}.toml ]] || { echo "no sheet ${2:-}" >&2; exit 1; }
            current=$2; echo "$current" > "$state/sheet"; show_sheet ;;
     *) sed -n '2,12p' "$0"; exit 1 ;;
