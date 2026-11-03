@@ -183,7 +183,7 @@ Rectangle {
                 Item { Layout.fillWidth: true }
                 Text { text: config.sheetScale || ""; font { family: root.mono; pixelSize: 10 } color: root.ink }
             }
-            Caps { Layout.topMargin: 10; text: config.note || ""; color: root.ink2 }
+            Caps { Layout.topMargin: 10; text: config.note || ""; color: root.ink2; visible: text !== "" }
             Rule { Layout.topMargin: 10 }
             RowLayout {
                 Layout.topMargin: 6; Layout.fillWidth: true

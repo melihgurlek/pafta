@@ -7,6 +7,8 @@ lat = 41.006
 lon = 29.0
 zoom = 13
 style = "chart"
+engraving = "istanbul-engraving.jpg"   # the base: an engraving traced over the chart plate (ChatGPT image,
+                                       # from calm-paper.jpg), its coast true to OSM within a few pixels
 relief = 3.0
 inset = [41.012, 29.0]    # the terminal inset: where the three waters meet
 inset_span = 900

@@ -153,7 +153,7 @@ Item {
                 Item { Layout.fillWidth: true }
                 Text { text: config.paftaScale || ""; font { family: ui.mono; pixelSize: 10 } color: ui.ink }
             }
-            Caps { Layout.topMargin: 10; text: config.paftaNote || ""; color: ui.ink2 }
+            Caps { Layout.topMargin: 10; text: config.paftaNote || ""; color: ui.ink2; visible: text !== "" }
             Rule { Layout.topMargin: 10 }
             RowLayout {
                 Layout.topMargin: 6; Layout.fillWidth: true
