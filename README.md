@@ -1,6 +1,6 @@
 # Pafta
 
-*Pafta* is Turkish for a map sheet. This KDE Plasma 6 rice turns the desktop into one: a survey sheet of real Turkish terrain, **reprinted every ten minutes under the real sun**. Shadows move across the mountains during the day and run long and gold at sunset. At night the sheet becomes a chart, lit by the moon at its real position and phase.
+*Pafta* is Turkish for a map sheet. This KDE Plasma 6 rice turns the desktop into one: a survey sheet of real Turkish terrain, printed on paper by day and as a chart at night. The prints are fixed plates, made once; what moves (the time, the sun and moon, the weather) is in the title-block widget.
 
 ![Ağrı Dağı at noon](docs/desktop.jpg)
 
@@ -15,7 +15,7 @@
 
 ## What's in it
 
-- **The print** (`bin/pafta-print`): shaded relief from the public SRTM elevation model (AWS Terrarium tiles), with sun and moon positions computed locally. It draws cast shadows, Imhof-style violet shadows and warm lit slopes, contours, water lines, a graticule frame with minute bands, and spot heights. The light's path is mirrored across the top of the sheet so the relief never reads inside out. `pafta-sun` and its timer print a new edition every 10 minutes.
+- **The print** (`bin/pafta-print`): shaded relief from the public SRTM elevation model (AWS Terrarium tiles), with sun and moon positions computed locally. It draws cast shadows, Imhof-style violet shadows and warm lit slopes, contours, water lines, a graticule frame with minute bands, and spot heights. The light's path is mirrored across the top of the sheet so the relief never reads inside out. `pafta-sun prints` makes each sheet's paper and night plates once; Kigae puts up the one for the hour at sunrise and sunset, and the timer only refreshes the widgets' almanac.
 - **The atlas** (`sheets/`): Ağrı Dağı, Nemrut, Erciyes, İstanbul Boğazı. A sheet is a small TOML file: centre, zoom, contour interval, labels. `osm = true` adds the OpenStreetMap plates (roads, bridges, rail, ferries, woods, exact water), as on İstanbul.
 - **Rail**: one docked 48px panel on the left, the sheet's margin. It holds a north-arrow launcher, apps with graticule ticks (magenta for the active one), the tray, and `org.pafta.railclock` (hours over minutes, plus a calendar with sunrise and sunset).
 - **Legend** (`org.pafta.legend`): the sheet's title block as a live widget. It shows the name, coordinates, a scale bar true to a 15.6" screen, the time, the sun or moon, and the weather (Open-Meteo). Click the name for the next sheet.

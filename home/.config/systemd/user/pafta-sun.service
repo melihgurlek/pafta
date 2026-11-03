@@ -1,5 +1,5 @@
 [Unit]
-Description=Pafta: print a new edition of the map under the current sun
+Description=Pafta: refresh the almanac the widgets show (sun, moon, sheet)
 After=graphical-session.target
 
 [Service]

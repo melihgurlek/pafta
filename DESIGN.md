@@ -6,7 +6,7 @@ The vision, rules and decisions behind this rice, written so a later session can
 
 *Pafta* is Turkish for a map sheet: one numbered sheet of a national topographic survey. The desktop is such a sheet. Real terrain (Ağrı Dağı, Nemrut's caldera, Erciyes, the Bosphorus) is drawn as a shaded relief with contour lines, set in a printed frame with a graticule, minute bands and a title block.
 
-The sheet is **reprinted every ten minutes**, lit by where the sun is over Istanbul at that moment. The shadows move across the mountains during the day, run long and gold at sunset, and at night the sheet turns into a chart: copper contours on slate, lit by the moon when it's up, at its real position and brightness. Nothing is a stock wallpaper: the elevation is the public SRTM model and every pixel is computed by `bin/pafta-print`.
+The sheet comes as two fixed plates: paper by day, lit from the north-west as map makers light relief, and at night a chart, copper contours on slate. They're printed once; the desktop changes plate at sunrise and sunset with the colours. An earlier version reprinted the sheet every ten minutes under the real sun, which cost a render each time for a change you couldn't notice. What does move, the clock, the sun and moon, the weather, lives in the title-block widget. Nothing is a stock wallpaper: the elevation is the public SRTM model and every pixel is computed by `bin/pafta-print`.
 
 Why this and not another dark rice: Ukiyo, the rice before this one, is a dark woodblock print. Pafta is light first, because Melih found the dark desktop gloomy by day and likes his white browser. It goes dark only when it's dark outside, the way a ship's chart display changes palette at dusk.
 

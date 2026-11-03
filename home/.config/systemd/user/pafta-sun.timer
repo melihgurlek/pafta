@@ -1,5 +1,5 @@
 [Unit]
-Description=Pafta: reprint the map every 10 minutes
+Description=Pafta: refresh the widgets' almanac every 10 minutes
 
 [Timer]
 OnCalendar=*:0/10
