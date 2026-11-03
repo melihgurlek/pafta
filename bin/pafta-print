@@ -248,7 +248,7 @@ def _osm_scaled(out):
         return out
     k = S / 2
     def sc(v):
-        return [sc(x) for x in v] if isinstance(v[0], list) else [v[0] * k, v[1] * k]
+        return [sc(x) for x in v] if isinstance(v[0], (list, tuple)) else [v[0] * k, v[1] * k]
     return {key: [sc(item) for item in items] for key, items in out.items()}
 
 
