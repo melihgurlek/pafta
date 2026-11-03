@@ -1,0 +1,59 @@
+# İstanbul: the Bosphorus from the Black Sea to the Marmara, the Golden Horn, the hills of both shores.
+name = "İSTANBUL BOĞAZI"
+region = "İstanbul"
+lat = 41.075
+lon = 29.06
+zoom = 12
+contour = 25
+index = 100
+relief = 2.2       # and the shading
+smooth = 7         # the city makes the elevation model noisy: generalise the contours more
+
+[[label]]
+kind = "water"
+name = "M A R M A R A"
+lat = 40.952
+lon = 28.93
+
+[[label]]
+kind = "water"
+name = "Haliç"
+lat = 41.035
+lon = 28.955
+
+[[label]]
+kind = "water"
+name = "İstanbul Boğazı"
+lat = 41.085
+lon = 29.058
+
+[[label]]
+kind = "peak"
+name = "Çamlıca"
+ele = 268
+lat = 41.0275
+lon = 29.0700
+
+[[label]]
+kind = "place"
+name = "Beşiktaş"
+lat = 41.0430
+lon = 29.0050
+
+[[label]]
+kind = "place"
+name = "Kadıköy"
+lat = 40.9900
+lon = 29.0270
+
+[[label]]
+kind = "place"
+name = "Üsküdar"
+lat = 41.0230
+lon = 29.0150
+
+[[label]]
+kind = "place"
+name = "Sarıyer"
+lat = 41.1670
+lon = 29.0570

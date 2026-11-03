@@ -270,7 +270,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True):
     lat0, lon0 = sheet["lat"], sheet["lon"]
     mpp = 156543.03392 * math.cos(math.radians(lat0)) / 2 ** sheet["zoom"]
     water1 = water_mask(dem)
-    soft = nd.gaussian_filter(dem, 1.2)
+    soft = nd.gaussian_filter(dem, sheet.get("relief", 1.2))
     z = nd.zoom(soft, S, order=3)
     m = mpp / S
     Hs, Ws = z.shape
@@ -307,7 +307,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True):
         col = np.where(wmask[..., None], wcol, col)
 
     # contours
-    zc = nd.gaussian_filter(z, 3.2)
+    zc = nd.gaussian_filter(z, sheet.get("smooth", 3.2))
     land = (~wmask)[..., None]
     c1 = contour(zc, sheet.get("contour", 50), 1.05 * S)[..., None] * land
     c2 = contour(zc, sheet.get("index", 250), 2.3 * S)[..., None] * land
