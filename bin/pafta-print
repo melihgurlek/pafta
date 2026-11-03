@@ -244,7 +244,7 @@ def dms(v, lat):
 
 
 # ---------------------------------------------------------------- the print
-def render(sheet_id, when, out, W, H, rail, home, legend=True):
+def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None):
     sheet = tomllib.loads((SHEETS / f"{sheet_id}.toml").read_text())
     tz = when.tzinfo
     s_az, s_alt = sun(when, home[0], home[1])
@@ -454,6 +454,18 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True):
         text(d, (ax, ay - 40 * S), "K", f_place, ink, anchor="c")
 
     img = img.resize((W, H), Image.LANCZOS)
+    if inset:  # a square inset around the sheet's main feature, for the terminal (fastfetch)
+        peaks = [l for l in sheet.get("label", []) if l["kind"] == "peak"]
+        la, lo = sheet.get("inset", [peaks[0]["lat"], peaks[0]["lon"]] if peaks else [lat0, lon0])
+        ix, iy = to_px(la, lo)
+        n = 420
+        x0i = int(min(max(ix / S - n / 2, rail + 30), W - 30 - n))
+        y0i = int(min(max(iy / S - n / 2, 30), H - 30 - n))
+        ins = img.crop((x0i, y0i, x0i + n, y0i + n))
+        dd = ImageDraw.Draw(ins)
+        dd.rectangle([0, 0, n - 1, n - 1], outline=ink, width=2)
+        dd.rectangle([5, 5, n - 6, n - 6], outline=tuple(int(v * 255) for v in mix(pal["ink"], pal["paper"], 0.6)), width=1)
+        ins.save(inset, format="PNG")
     img.save(out, quality=94) if str(out).endswith(".jpg") else img.save(out)
     return state
 
@@ -467,6 +479,7 @@ def main():
     ap.add_argument("--rail", type=int)
     ap.add_argument("--no-legend", action="store_true", help="leave the title block to the desktop widget")
     ap.add_argument("--state", help="also write what the print shows as JSON here")
+    ap.add_argument("--inset", help="also write a square inset of the sheet here (the fastfetch logo)")
     a = ap.parse_args()
     cfg = tomllib.loads(CONFIG.read_text()) if CONFIG.exists() else {}
     home = (cfg.get("lat", 41.01), cfg.get("lon", 28.98), cfg.get("screen_inches", 15.6))
@@ -477,7 +490,7 @@ def main():
     sheet = a.sheet or (picked.read_text().strip() if picked.exists() else "") or cfg.get("sheet", "agri")
     out = a.out if a.out != "-" else str(CACHE / f"print-{when:%H%M}.jpg")
     info = render(sheet, when, out, W, H, a.rail if a.rail is not None else cfg.get("rail", 48), home,
-                  legend=not a.no_legend)
+                  legend=not a.no_legend, inset=a.inset)
     if a.state:
         import json
         Path(a.state).write_text(json.dumps(info, ensure_ascii=False, indent=1))

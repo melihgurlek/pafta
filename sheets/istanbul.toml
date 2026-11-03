@@ -7,6 +7,7 @@ zoom = 12
 contour = 25
 index = 100
 relief = 2.2       # and the shading
+inset = [41.07, 29.03] # the terminal inset: the strait, not the hill
 smooth = 7         # the city makes the elevation model noisy: generalise the contours more
 
 [[label]]
