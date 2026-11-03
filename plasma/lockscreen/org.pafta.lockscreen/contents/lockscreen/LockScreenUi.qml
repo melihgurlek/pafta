@@ -51,14 +51,14 @@ Item {
         target: authenticator
         function onFailed(kind) {
             if (kind != 0) return
-            ui.message = "PAROLA YANLIŞ"
+            ui.message = "WRONG PASSWORD"
             password.text = ""
             misregister.restart()
             graceLock.restart()
         }
         function onSucceeded() {
             if (authenticator.hadPrompt) Qt.quit()
-            else ui.message = "PAROLA GEREKMİYOR · ENTER İLE AÇ"
+            else ui.message = "NO PASSWORD NEEDED · PRESS ENTER"
         }
         function onErrorMessageChanged() { if (authenticator.errorMessage) ui.message = authenticator.errorMessage.toUpperCase() }
         function onPromptForSecretChanged() { password.forceActiveFocus() }
@@ -147,13 +147,13 @@ Item {
             RowLayout {
                 Layout.topMargin: 12; Layout.fillWidth: true; spacing: 0
                 Repeater { model: 5
-                    Rectangle { width: Number(config.paftaPxPerKm) || 34; height: 5
+                    Rectangle { width: Number(config.paftaSegPx) || Number(config.paftaPxPerKm) || 34; height: 5
                         color: index % 2 === 0 ? ui.ink : "transparent"; border { width: 1; color: ui.ink } } }
-                Text { Layout.leftMargin: 8; text: "5 km"; font { family: ui.mono; pixelSize: 10 } color: ui.ink2 }
+                Text { Layout.leftMargin: 8; text: (config.paftaBarKm || 5) + " km"; font { family: ui.mono; pixelSize: 10 } color: ui.ink2 }
                 Item { Layout.fillWidth: true }
                 Text { text: config.paftaScale || ""; font { family: ui.mono; pixelSize: 10 } color: ui.ink }
             }
-            Caps { Layout.topMargin: 10; text: "EŞ YÜKSELTİ ARALIĞI " + (config.paftaContour || 50) + " M"; color: ui.ink2 }
+            Caps { Layout.topMargin: 10; text: config.paftaNote || ("EŞ YÜKSELTİ ARALIĞI " + (config.paftaContour || 50) + " M"); color: ui.ink2 }
             Rule { Layout.topMargin: 10 }
             RowLayout {
                 Layout.topMargin: 6; Layout.fillWidth: true
@@ -185,7 +185,7 @@ Item {
                     padding: 0
                     color: ui.ink
                     font { family: ui.mono; pixelSize: 14; letterSpacing: 2 }
-                    placeholderText: "Parolanızı yazın"
+                    placeholderText: "Password"
                     placeholderTextColor: ui.ink3
                     selectionColor: ui.over
                     background: null
@@ -205,16 +205,16 @@ Item {
             }
             Caps {
                 Layout.topMargin: 8
-                text: ui.message || (capsLock.locked ? "BÜYÜK HARF KİLİDİ AÇIK" : "PAROLANIZI YAZIP ENTER'A BASIN")
+                text: ui.message || (capsLock.locked ? "CAPS LOCK IS ON" : "TYPE YOUR PASSWORD, THEN ENTER")
                 color: ui.message || capsLock.locked ? ui.road : ui.ink2
             }
             Rule { Layout.topMargin: 10 }
             Caps { Layout.topMargin: 8; text: config.paftaSky || ""; visible: text !== "" }
             RowLayout {
                 Layout.topMargin: 5; Layout.fillWidth: true; spacing: 14
-                Caps { text: "UYKU"; color: sleepArea.containsMouse ? ui.over : ui.ink2; visible: sessions.canSuspend
+                Caps { text: "SLEEP"; color: sleepArea.containsMouse ? ui.over : ui.ink2; visible: sessions.canSuspend
                        MouseArea { id: sleepArea; anchors.fill: parent; hoverEnabled: true; onClicked: sessions.suspend() } }
-                Caps { text: "KULLANICI DEĞİŞTİR"; color: switchArea.containsMouse ? ui.over : ui.ink2; visible: sessions.canSwitchUser
+                Caps { text: "SWITCH USER"; color: switchArea.containsMouse ? ui.over : ui.ink2; visible: sessions.canSwitchUser
                        MouseArea { id: switchArea; anchors.fill: parent; hoverEnabled: true; onClicked: sessions.switchUser() } }
                 Item { Layout.fillWidth: true }
             }

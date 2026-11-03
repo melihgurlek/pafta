@@ -91,7 +91,7 @@ Rectangle {
         sddm.login(root.userName, password.text, root.session)
     }
     function failed() {
-        root.message = "PAROLA YANLIŞ"
+        root.message = "WRONG PASSWORD"
         password.text = ""
         misregister.restart()
     }
@@ -178,13 +178,13 @@ Rectangle {
             RowLayout {
                 Layout.topMargin: 12; Layout.fillWidth: true; spacing: 0
                 Repeater { model: 5
-                    Rectangle { width: Number(config.pxPerKm) || 34; height: 5
+                    Rectangle { width: Number(config.segPx) || Number(config.pxPerKm) || 34; height: 5
                         color: index % 2 === 0 ? root.ink : "transparent"; border { width: 1; color: root.ink } } }
-                Text { Layout.leftMargin: 8; text: "5 km"; font { family: root.mono; pixelSize: 10 } color: root.ink2 }
+                Text { Layout.leftMargin: 8; text: (config.barKm || 5) + " km"; font { family: root.mono; pixelSize: 10 } color: root.ink2 }
                 Item { Layout.fillWidth: true }
                 Text { text: config.sheetScale || ""; font { family: root.mono; pixelSize: 10 } color: root.ink }
             }
-            Caps { Layout.topMargin: 10; text: "EŞ YÜKSELTİ ARALIĞI " + (config.contour || 50) + " M"; color: root.ink2 }
+            Caps { Layout.topMargin: 10; text: config.note || ("EŞ YÜKSELTİ ARALIĞI " + (config.contour || 50) + " M"); color: root.ink2 }
             Rule { Layout.topMargin: 10 }
             RowLayout {
                 Layout.topMargin: 6; Layout.fillWidth: true
@@ -229,7 +229,7 @@ Rectangle {
                         cursorDelegate: Rectangle { width: 2; color: root.over; visible: password.activeFocus && root.blink }
                         onAccepted: root.login()
                         onTextChanged: if (text.length) root.message = ""
-                        Text { visible: !password.text.length; text: "Parolanızı yazın"; color: root.ink3
+                        Text { visible: !password.text.length; text: "Password"; color: root.ink3
                                anchors.verticalCenter: parent.verticalCenter; x: 4
                                font { family: root.mono; pixelSize: 14; letterSpacing: 2 } }
                     }
@@ -245,23 +245,23 @@ Rectangle {
                 }
                 Caps {
                     Layout.topMargin: 8
-                    text: root.message || (keyboard.capsLock ? "BÜYÜK HARF KİLİDİ AÇIK" : "PAROLANIZI YAZIP ENTER'A BASIN")
+                    text: root.message || (keyboard.capsLock ? "CAPS LOCK IS ON" : "TYPE YOUR PASSWORD, THEN ENTER")
                     color: root.message || keyboard.capsLock ? root.road : root.ink2
                 }
                 Rule { Layout.topMargin: 10 }
                 RowLayout {
                     Layout.topMargin: 8; Layout.fillWidth: true; spacing: 14
                     Link {
-                        text: "OTURUM  " + (root.sessionNames[root.session] || "").toLocaleUpperCase(Qt.locale("tr_TR"))
+                        text: "SESSION  " + (root.sessionNames[root.session] || "").toLocaleUpperCase(Qt.locale("tr_TR"))
                         onActivated: root.session = (root.session + 1) % Math.max(sessionModel.count, 1)
                     }
                     Item { Layout.fillWidth: true }
                 }
                 RowLayout {
                     Layout.topMargin: 5; Layout.fillWidth: true; spacing: 14
-                    Link { text: "UYKU"; visible: root.demo || sddm.canSuspend; onActivated: sddm.suspend() }
-                    Link { text: "YENİDEN BAŞLAT"; visible: root.demo || sddm.canReboot; onActivated: sddm.reboot() }
-                    Link { text: "KAPAT"; visible: root.demo || sddm.canPowerOff; onActivated: sddm.powerOff() }
+                    Link { text: "SLEEP"; visible: root.demo || sddm.canSuspend; onActivated: sddm.suspend() }
+                    Link { text: "RESTART"; visible: root.demo || sddm.canReboot; onActivated: sddm.reboot() }
+                    Link { text: "SHUT DOWN"; visible: root.demo || sddm.canPowerOff; onActivated: sddm.powerOff() }
                     Item { Layout.fillWidth: true }
                 }
             }

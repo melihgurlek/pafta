@@ -1,12 +1,17 @@
 {
     "KPackageStructure": "Plasma/Shell",
     "KPlugin": {
-        "Authors": [{ "Name": "Claude, for Melih" }],
+        "Authors": [
+            {
+                "Name": "Claude, for Melih"
+            }
+        ],
         "Description": "Pafta lock screen: the desktop's legend box with a password row. Lock screen only; never run as a desktop shell.",
         "Id": "org.pafta.lockscreen",
         "License": "GPL-2.0-or-later",
         "Name": "Pafta Lock Screen",
-        "Version": "0.1"
+        "Version": "1.0"
     },
-    "X-Plasma-APIVersion": "2"
+    "X-Plasma-APIVersion": "2",
+    "X-Plasma-FallbackPackage": "org.kde.plasma.desktop"
 }

@@ -25,6 +25,9 @@
 - **Apps**: kitty, Konsole, Kate/KWrite, VS Code (`apps/vscode/pafta-theme`), Neovim (`~/.config/pafta/nvim`), and a p10k prompt. All switch between paper and night.
 - **Type**: IBM Plex Sans, Plex Mono, Plex Serif Italic (water names), BlexMono Nerd Font in the terminal.
 
+- **Lock screen** (`plasma/lockscreen/org.pafta.lockscreen`): the desktop's legend box plus a password field, over the print with even margins. Picked through `plasmashellrc [Shell] ShellPackage`; a plasmashell drop-in names the desktop shell explicitly so plasmashell never loads the lock package, and the package falls back to `org.kde.plasma.desktop` regardless. `pafta-sun` keeps the box's sheet details current in `kscreenlockerrc`.
+- **Login** (`sddm/`): the same box over a dawn, day, dusk or night print chosen by the sun at login. `sddm/build.sh && pkexec sddm/install-sddm-theme.sh`; undo with `pkexec sddm/revert-sddm-theme.sh`; try it first with `sddm/preview.sh`.
+
 Design notes and rules are in [DESIGN.md](DESIGN.md).
 
 ## Install

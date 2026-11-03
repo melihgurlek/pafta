@@ -19,7 +19,7 @@ at() { date -d "@$(( $(date -d "$(date +%F) $1" +%s) + $2 * 60 ))" +%FT%H:%M; }
 # what the legend box says about the sheet
 {
     echo "[General]"
-    jq -r '"sheetName=\(.name)\nsheetRegion=\(.region)\nsheetCoords=\(.coords)\nsheetScale=\(.scale)\npxPerKm=\(.px_per_km)\ncontour=\(.contour)\nlat=\(.home.lat)\nlon=\(.home.lon)"' "$state"
+    jq -r '"sheetName=\(.name)\nsheetRegion=\(.region)\nsheetCoords=\(.coords)\nsheetScale=\(.scale)\npxPerKm=\(.px_per_km)\ncontour=\(.contour)\nsegPx=\(.seg_px)\nbarKm=\(.bar_km)\nnote=\(.note)\nlat=\(.home.lat)\nlon=\(.home.lon)"' "$state"
     echo "demo=false"
 } > "$out/theme.conf"
 rm -rf "$state" "$scratch"
