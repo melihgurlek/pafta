@@ -40,6 +40,7 @@ With [Kigae](https://github.com/melihgurlek/Kigae) (live rice switching):
 ln -s ~/Code/Rice ~/.config/kigae/manifests/pafta
 ln -s ~/Code/Rice/kigae/pafta.toml ~/.config/kigae/manifests/pafta.toml
 kigae install pafta && kigae apply pafta
+kigae deep pafta      # the login screen too (one password prompt; needs sddm/ installed first)
 ```
 
 Without it: `./install.sh` copies everything and applies the day look. `./install.sh --panels` also replaces your panels with the rail (it does not save your old layout).
