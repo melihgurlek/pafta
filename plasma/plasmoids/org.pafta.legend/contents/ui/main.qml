@@ -99,8 +99,16 @@ PlasmoidItem {
         Layout.minimumWidth: 340
         Layout.minimumHeight: 256
 
+        // the box hugs its rows and sits on the bottom of the widget's slot, so a missing row
+        // (no depth note on an engraved sheet) shortens it instead of leaving a gap
+        Item {
+            id: box
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: Math.min(parent.height, rows.implicitHeight + 30)
+        }
+
         Rectangle {  // the box: paper, a keyline and a thin inner rule
-            anchors.fill: parent
+            anchors.fill: box
             color: Kirigami.Theme.backgroundColor
             border { width: 1; color: Qt.alpha(root.ink, 0.85) }
             Rectangle {
@@ -113,7 +121,7 @@ PlasmoidItem {
         // north arrow, half filled like the one in the margin of the sheet
         Shape {
             id: arrow
-            anchors { right: parent.right; top: parent.top; rightMargin: 22; topMargin: 18 }
+            anchors { right: box.right; top: box.top; rightMargin: 22; topMargin: 18 }
             width: 14; height: 30
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
@@ -135,7 +143,8 @@ PlasmoidItem {
         }
 
         ColumnLayout {
-            anchors { fill: parent; leftMargin: 20; rightMargin: 20; topMargin: 16; bottomMargin: 14 }
+            id: rows
+            anchors { left: box.left; right: box.right; top: box.top; leftMargin: 20; rightMargin: 20; topMargin: 16 }
             spacing: 0
 
             Text {
@@ -212,7 +221,6 @@ PlasmoidItem {
 
             Caps { Layout.topMargin: 10; text: root.skyLine() }
             Caps { Layout.topMargin: 5; text: root.weather; visible: text !== "" }
-            Item { Layout.fillHeight: true }
         }
     }
 }
