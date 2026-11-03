@@ -64,8 +64,8 @@ style = "pafta-paper"
 kconfig.kwinrc."org.kde.kdecoration2/theme" = "__aurorae__svg__PaftaPaper"
 kconfig.katerc."KTextEditor Renderer/Color Theme" = "Pafta Paper"
 kconfig.kwriterc."KTextEditor Renderer/Color Theme" = "Pafta Paper"
-kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/Image" = "file:///home/melih/.local/share/pafta/prints/lock-paper.jpg"
-kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/PreviewImage" = "file:///home/melih/.local/share/pafta/prints/lock-paper.jpg"
+kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/Image" = "file://~/.local/share/pafta/prints/lock-paper.jpg"
+kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/PreviewImage" = "file://~/.local/share/pafta/prints/lock-paper.jpg"
 
 [daynight.dark]
 wallpaper = "~/.local/share/pafta/prints/night.jpg"
@@ -75,8 +75,8 @@ style = "pafta-night"
 kconfig.kwinrc."org.kde.kdecoration2/theme" = "__aurorae__svg__PaftaNight"
 kconfig.katerc."KTextEditor Renderer/Color Theme" = "Pafta Night"
 kconfig.kwriterc."KTextEditor Renderer/Color Theme" = "Pafta Night"
-kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/Image" = "file:///home/melih/.local/share/pafta/prints/lock-night.jpg"
-kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/PreviewImage" = "file:///home/melih/.local/share/pafta/prints/lock-night.jpg"
+kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/Image" = "file://~/.local/share/pafta/prints/lock-night.jpg"
+kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/PreviewImage" = "file://~/.local/share/pafta/prints/lock-night.jpg"
 
 [services]
 enable = ["pafta-sun.timer"]

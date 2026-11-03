@@ -8,9 +8,8 @@
 #   pafta-sun prints          print the current sheet's plates if missing or out of date
 #   pafta-sun mood            match the lock screen and fastfetch inset to the hour's plate
 #                             (Kigae's hook: after a switch, and at sunrise and sunset)
-#   pafta-sun next | prev     turn the atlas to the next or previous sheet and put it up
-#   pafta-sun sheet <id>      open a given sheet (see `pafta-sun sheets`)
-#   pafta-sun sheets          list the sheets
+#   pafta-sun sheet <id>      print and put up another sheet from sheets/ (İstanbul is the one
+#                             that ships; a sheet is a small TOML file, see README)
 set -euo pipefail
 # systemd's user PATH leaves out ~/.local/bin, where uv (which runs pafta-print) lives
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
@@ -22,8 +21,8 @@ sheets_dir=$here/../sheets
 [[ -d $sheets_dir ]] || sheets_dir=${XDG_DATA_HOME:-$HOME/.local/share}/pafta/sheets
 mkdir -p "$cache" "$state" "$prints"
 
-mapfile -t sheets < <(find "$sheets_dir" -name '*.toml' -printf '%f\n' | sed 's/\.toml$//' | sort)
 current=$(cat "$state/sheet" 2>/dev/null || echo istanbul)
+[[ -f $sheets_dir/$current.toml ]] || current=istanbul   # a sheet that was dropped from the atlas
 
 lock() { kwriteconfig6 --file kscreenlockerrc --group Greeter --group LnF --group General --key "$1" "$2"; }
 
@@ -32,20 +31,28 @@ plate_now() {
     [[ $(kreadconfig6 --file kdeglobals --group General --key ColorScheme) == PaftaNight ]] && echo night || echo paper
 }
 
+# the sun and moon for the widgets; the lock screen gets its one moving line
 almanac() {
     local rc=0 st=$cache/state.json
-    "$here/pafta-print" --sheet "$current" --state-only --state "$st.new" 2>/dev/null >/dev/null || rc=$?
-    [[ $rc == 0 || $rc == 3 ]] || exit "$rc"
+    "$here/pafta-print" --sheet "$current" --state-only --state "$st.new" >/dev/null || rc=$?
+    [[ $rc == 0 || $rc == 3 ]] || { echo "pafta-sun: the almanac failed (pafta-print exit $rc)" >&2; exit "$rc"; }
     mv "$st.new" "$st"
-    # the lock screen's legend box reads the sheet from kscreenlockerrc (the greeter can't read files)
+    lock paftaSky "$(jq -r 'if .sun.alt > -1 then "SUN  \(.sun.az)°  \(.sun.alt)°  ·  SETS \(.sun.set)" elif .moon.alt > 0 then "MOON  \(.moon.az)°  \(.moon.alt)°  ·  \(.moon.lit)% LIT" else "NIGHT  ·  SUNRISE \(.sun.rise)" end' "$st")"
+}
+
+# the lock screen's legend box reads the sheet from kscreenlockerrc (the greeter can't read
+# files); these only change with the sheet, so they're written on a switch, not every tick
+sheet_keys() {
+    local st=$cache/state.json pair
+    [[ -f $st ]] || almanac
     for pair in paftaName:.name paftaRegion:.region paftaCoords:.coords paftaScale:.scale \
                 paftaPxPerKm:.px_per_km paftaSegPx:.seg_px paftaBarKm:.bar_km paftaNote:.note paftaContour:.contour; do
         lock "${pair%%:*}" "$(jq -r "${pair#*:}" "$st")"
     done
-    lock paftaSky "$(jq -r 'if .sun.alt > -1 then "SUN  \(.sun.az)°  \(.sun.alt)°  ·  SETS \(.sun.set)" elif .moon.alt > 0 then "MOON  \(.moon.az)°  \(.moon.alt)°  ·  \(.moon.lit)% LIT" else "NIGHT  ·  SUNRISE \(.sun.rise)" end' "$st")"
 }
 
-# print a plate only when it's missing or older than its sheet or the renderer
+# print a plate only when it's missing or older than its sheet or the renderer. A failed print
+# (no network on a first run, say) says so in the journal and leaves the old plate in place.
 print_plates() {
     local p f
     exec 9>"$cache/.lock"
@@ -53,8 +60,12 @@ print_plates() {
     for p in paper night; do
         f=$prints/$current-$p.jpg
         if [[ ! -f $f || $f -ot $sheets_dir/$current.toml || $f -ot $here/pafta-print ]]; then
-            "$here/pafta-print" --sheet "$current" --plate "$p" --no-legend --out "$prints/.new.jpg" \
-                --lock-out "$prints/.lock-new.jpg" --inset "$prints/.inset-new.png" 2>/dev/null >/dev/null
+            if ! "$here/pafta-print" --sheet "$current" --plate "$p" --no-legend --out "$prints/.new.jpg" \
+                    --lock-out "$prints/.lock-new.jpg" --inset "$prints/.inset-new.png" >/dev/null; then
+                echo "pafta-sun: printing the $p plate of $current failed (see above); kept what was there" >&2
+                [[ -f $f ]] || exit 1
+                continue
+            fi
             mv "$prints/.lock-new.jpg" "$prints/$current-lock-$p.jpg"
             mv "$prints/.inset-new.png" "$prints/$current-inset-$p.png"
             mv "$prints/.new.jpg" "$f"
@@ -78,23 +89,14 @@ show_sheet() {
     mood
     plasma-apply-wallpaperimage "$prints/$current-$(plate_now).jpg" >/dev/null
     almanac
-}
-
-turn() {  # move $1 sheets along the atlas
-    local i n=${#sheets[@]}
-    for i in "${!sheets[@]}"; do [[ ${sheets[$i]} == "$current" ]] && break; done
-    current=${sheets[$(( (i + $1 + n) % n ))]}
-    echo "$current" > "$state/sheet"
+    sheet_keys
 }
 
 case ${1:-} in
     "") almanac ;;
     prints) print_plates ;;
-    mood) print_plates; mood ;;
-    next) turn 1; show_sheet ;;
-    prev) turn -1; show_sheet ;;
+    mood) print_plates; mood; sheet_keys ;;
     sheet) [[ -f $sheets_dir/${2:-}.toml ]] || { echo "no sheet ${2:-}" >&2; exit 1; }
            current=$2; echo "$current" > "$state/sheet"; show_sheet ;;
-    sheets) printf '%s\n' "${sheets[@]}" ;;
-    *) sed -n '2,13p' "$0"; exit 1 ;;
+    *) sed -n '2,12p' "$0"; exit 1 ;;
 esac

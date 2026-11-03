@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Install Pafta without Kigae: copy the assets into $HOME, start the print timer and apply the
-# day look. With --panels it also replaces your panels and desktop widgets with Pafta's rail
+# Install Pafta without Kigae: copy the assets into $HOME, print the sheet's two plates (the
+# first run downloads elevation, map and depth data), and apply the day or night look with its
+# wallpaper and lock screen. With --panels it also replaces your panels and desktop widgets with Pafta's rail
 # and legend (your current layout is not saved: back it up first if you care about it).
 #
 #   ./install.sh [--panels] [--night]
 #
-# Needs: KDE Plasma 6, uv (the renderer is a uv script), kitty for the terminal theme,
-# IBM Plex Sans/Mono/Serif and BlexMono Nerd Font (see README).
+# Needs: KDE Plasma 6, uv (the renderer is a uv script), jq, network on the first run, kitty for
+# the terminal theme, IBM Plex Sans/Mono/Serif and BlexMono Nerd Font in ~/.local/share/fonts/pafta
+# (see README).
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
+for c in uv jq kwriteconfig6 plasma-apply-wallpaperimage; do
+    command -v "$c" >/dev/null || { echo "missing: $c"; exit 1; }
+done
 panels=0; look=paper
 for a in "$@"; do
     case $a in
@@ -31,6 +36,13 @@ rm -rf "$HOME/.local/share/pafta/sheets" && cp -r sheets "$HOME/.local/share/paf
 for p in plasma/plasmoids/*; do
     rm -rf "$HOME/.local/share/plasma/plasmoids/${p##*/}" && cp -r "$p" "$HOME/.local/share/plasma/plasmoids/"
 done
+# the lock screen: kscreenlocker loads the shell package plasmashellrc names; the plasmashell
+# drop-in copied above keeps plasmashell itself on the stock desktop shell
+mkdir -p "$HOME/.local/share/plasma/shells"
+rm -rf "$HOME/.local/share/plasma/shells/org.pafta.lockscreen"
+cp -r plasma/lockscreen/org.pafta.lockscreen "$HOME/.local/share/plasma/shells/"
+kwriteconfig6 --file plasmashellrc --group Shell --key ShellPackage org.pafta.lockscreen
+systemctl --user daemon-reload
 
 echo "· applying the $look look"
 if [[ $look == paper ]]; then scheme=PaftaPaper style=pafta-paper deco=PaftaPaper; else scheme=PaftaNight style=pafta-night deco=PaftaNight; fi
@@ -52,9 +64,19 @@ if (( panels )); then
     qdbus-qt6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$shim $(cat plasma/layout.js)" >/dev/null
 fi
 
-echo "· starting the print timer"
-systemctl --user daemon-reload
+echo "· printing the paper and night plates (a minute on the first run)"
+"$HOME/.local/bin/pafta-sun" prints
+"$HOME/.local/bin/pafta-sun" mood
+prints=$HOME/.local/share/pafta/prints
+plasma-apply-wallpaperimage "$prints/$look.jpg" >/dev/null
+lock() { kwriteconfig6 --file kscreenlockerrc --group Greeter "$@"; }
+lock --key WallpaperPlugin org.kde.image
+lock --group Wallpaper --group org.kde.image --group General --key Image "file://$prints/lock-$look.jpg"
+lock --group Wallpaper --group org.kde.image --group General --key PreviewImage "file://$prints/lock-$look.jpg"
+
+echo "· starting the almanac timer"
 systemctl --user enable --now pafta-sun.timer >/dev/null
 "$HOME/.local/bin/pafta-sun"
-echo "done. Terminal: add 'include pafta.conf' to kitty.conf and link dark-theme.auto.conf /"
+echo "done. Without Kigae the look doesn't follow the sun: re-run with --night after dark."
+echo "Terminal: add 'include pafta.conf' to kitty.conf and link dark-theme.auto.conf /"
 echo "light-theme.auto.conf to pafta-night.conf / pafta-paper.conf."

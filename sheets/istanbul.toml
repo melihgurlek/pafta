@@ -15,8 +15,9 @@ rose = [40.962, 28.905]    # in the open Marmara
 [[label]]
 kind = "water"
 name = "İstanbul Boğazı"
-lat = 41.052
-lon = 29.030
+lat = 41.059
+lon = 29.0465
+angle = 54               # lettered along the strait
 
 [[label]]
 kind = "water"

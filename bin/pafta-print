@@ -3,14 +3,16 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy", "scipy", "pillow", "mapbox-vector-tile", "tifffile"]
 # ///
-"""Print one edition of a Pafta map sheet: real terrain, lit by where the sun (or the moon)
-is over you right now.
+"""Print a Pafta map sheet: a fixed paper or night plate (what the desktop uses), or the sheet
+lit by the sun or moon of a given moment.
 
-    pafta-print [--sheet istanbul] [--at 2026-11-03T17:05] [--out file.png] [--size 1920x1080]
+    pafta-print [--sheet istanbul] [--plate paper|night] [--at 2026-11-03T17:05] [--out file.png]
+    pafta-print --state-only --state state.json     the almanac the widgets show, no print
 
-Elevation comes from the public AWS terrain tiles (Terrarium encoding, SRTM in Turkey) and is
-cached in ~/.cache/pafta/dem. Everything else is computed here: sun and moon positions, the
-shading, contours, water, the frame and the title block.
+Elevation comes from the public AWS terrain tiles (Terrarium encoding, SRTM), the chart's land
+and water from OpenFreeMap's OpenStreetMap tiles and its depths from EMODnet, all cached in
+~/.cache/pafta. Everything else is computed here: sun and moon, contours, depth bands, soundings,
+the frame and the title block.
 """
 import argparse, datetime as dt, glob, io, json, math, os, subprocess, sys, tomllib, urllib.request
 from pathlib import Path
@@ -320,41 +322,63 @@ def bathy_for(sheet_id, sheet, to_ll, Ws, Hs):
     return nd.zoom(depth, 2, order=1)[:Hs, :Ws]
 
 
-def chart_base(sheet_id, sheet, osm, k, day, pal, to_ll, mpp, Ws, Hs):
-    """Land as quiet paper (built-up tone, parks, a faint relief), water as the subject: depth
-    bands from shallow blue to deep paper, depth contours, a shore line."""
-    def big(rings):
-        xs, ys = [p[0] for p in rings[0]], [p[1] for p in rings[0]]
-        return (max(xs) - min(xs)) * (max(ys) - min(ys)) > 2500 * S * S
-    # the coast is the line everything hangs on: rasterised at 2x for a soft, exact edge
+def chart_base(sheet_id, sheet, osm, k, z, day, pal, to_ll, mpp, Ws, Hs):
+    """Water as the subject: depth bands from shallow blue to deep paper, depth contours, a shore
+    line. Land the way an Admiralty chart draws it: flat paper, the town as one quiet tint, 50 m
+    contours in the brown plate, only the motorways, a breath of relief. No street grid, no parks:
+    those make a chart read as a web map."""
+    # the coast is the line everything hangs on: rasterised at 2x for a soft, exact edge. Ponds
+    # and pools go, judged on the merged water: tiles cut the sea into pieces, and dropping the
+    # small pieces leaves square bites out of the shore
     up = 2 / S
-    big_water = [[[(x * up, y * up) for x, y in ring] for ring in poly] for poly in osm["water"] if big(poly)]
-    water2 = raster_polys(big_water, (int(Ws * up), int(Hs * up)))
+    water2 = raster_polys([[[(x * up, y * up) for x, y in ring] for ring in poly] for poly in osm["water"]],
+                          (int(Ws * up), int(Hs * up)))
+    lab, n = nd.label(water2)
+    sizes = nd.sum(water2, lab, range(1, n + 1))
+    water2 = np.isin(lab, 1 + np.nonzero(sizes > 2500 * 4)[0])
+    del lab
     cov = lambda m: m.reshape(Hs, int(up), Ws, int(up)).mean((1, 3), dtype=np.float32)
     water_cov = cov(water2)
     shore_cov = cov(water2 & ~nd.binary_erosion(water2, iterations=2))
     del water2
     water = water_cov > 0.5
-    # land, the way a harbour chart draws a town: the street pattern as hairlines, parks and
-    # woods in green with a crisp edge, a whisper of relief, and all of it fading inland so the
-    # eye stays on the water
     land = np.ones((Hs, Ws, 3), np.float32) * chart_colour("land", day)
-    land = mix(land, land * rgb("#59627F") * 1.25, np.clip(1 - k, 0, 1)[..., None] * (0.14 if day > 0.5 else 0.4))
-    green = raster_polys(osm["park"] + osm["wood"], (Ws, Hs))
-    edge = green & ~nd.binary_erosion(green, iterations=1)
-    land = mix(land, chart_colour("park", day), nd.gaussian_filter(green.astype(np.float32), 0.6)[..., None] * 0.8)
-    land = mix(land, chart_colour("park_edge", day), edge[..., None] * 0.6)
-    # hairlines finer than a pixel: drawn on a 2x canvas and reduced (widths are 2x pixels)
-    fabric = Image.new("L", (Ws * 2, Hs * 2), 0)
-    df = ImageDraw.Draw(fabric)
-    up = 2 / S
-    for kind, w, a in (("street", 1, 150), ("primary", 2, 200), ("trunk", 3, 220), ("motorway", 3, 230), ("bridge", 3, 230)):
+    land = mix(land, land * rgb("#59627F") * 1.25, np.clip(1 - k, 0, 1)[..., None] * (0.07 if day > 0.5 else 0.2))
+    # the town, generalised the way a chart does it: wherever the streets are dense, one tint
+    streets = Image.new("L", (Ws, Hs), 0)
+    ds = ImageDraw.Draw(streets)
+    for kind in ("street", "primary", "trunk"):
         for line in osm[kind]:
-            df.line([(x * up, y * up) for x, y in line], fill=a, width=w, joint="curve")
-    fabric = np.asarray(fabric.resize((Ws, Hs), Image.BOX)).astype(np.float32) / 255
-    inland = nd.distance_transform_edt(~water) * (mpp / S)  # metres from the shore
-    fade = np.clip(1 - inland / 3500, 0.22, 1) ** 0.9
-    land = mix(land, pal["ink"], (fabric * fade * (0.55 if day > 0.5 else 0.45))[..., None])
+            ds.line([(x, y) for x, y in line], fill=255, width=1)
+    dense = nd.gaussian_filter(np.asarray(streets, np.float32) / 255, 14 * S)
+    del streets, ds
+    built = nd.gaussian_filter((dense > 0.085).astype(np.float32), 2.0 * S) * ~water
+    land = mix(land, chart_colour("built", day), built[..., None])
+    del dense, built
+    # the shape of the hills: 50 m contours, every 100 m a little heavier
+    zc = nd.gaussian_filter(z, 3.2 * S)
+    dry = (~water).astype(np.float32)
+    for interval, width, a_ in ((50, 1.0, 0.30), (100, 1.5, 0.42)):
+        line = contour(zc, interval, width * S) * dry * (zc > interval / 2)  # no sea-level line
+        land = mix(land, pal["contour"], (line * a_ * (1 if day > 0.5 else 1.3))[..., None])
+    # spot heights: the highest hilltops, well apart
+    peaks = (zc == nd.maximum_filter(zc, size=int(160 * S))) & (zc > 90) & ~water
+    spots = []
+    for yy, xx in sorted(np.argwhere(peaks), key=lambda p: -zc[p[0], p[1]]):
+        if all((yy - a) ** 2 + (xx - b) ** 2 > (220 * S) ** 2 for a, b, _ in spots):
+            spots.append((int(yy), int(xx), int(round(float(z[yy, xx])))))
+        if len(spots) == 6:
+            break
+    del zc, dry
+    # only the motorways and the bridges' approaches, as one quiet hairline
+    roads = Image.new("L", (Ws * 2, Hs * 2), 0)
+    dr = ImageDraw.Draw(roads)
+    for kind in ("motorway", "bridge"):
+        for line in osm[kind]:
+            dr.line([(x * up, y * up) for x, y in line], fill=255, width=2, joint="curve")
+    roads = np.asarray(roads.resize((Ws, Hs), Image.BOX)).astype(np.float32) / 255
+    land = mix(land, pal["ink"], (roads * (0.32 if day > 0.5 else 0.3))[..., None])
+    del roads
     depth = bathy_for(sheet_id, sheet, to_ll, Ws, Hs).astype(np.float32)
     depth = nd.gaussian_filter(np.where(water, np.clip(depth, 0.5, None), 0), 3 * S / 2) * water
     wcol = np.zeros((Hs, Ws, 3), np.float32)
@@ -368,10 +392,10 @@ def chart_base(sheet_id, sheet, osm, k, day, pal, to_ll, mpp, Ws, Hs):
         iso = np.maximum(iso, (nd.binary_dilation(m) & ~m & water) * (0.9 if d0 in (10, 50) else 0.55))
     col = mix(col, chart_colour("iso", day), nd.gaussian_filter(iso, 0.7)[..., None] * 0.8)
     col = mix(col, pal["ink"], shore_cov[..., None] * 0.85)
-    return col, water, depth
+    return col, water, depth, spots
 
 
-def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, rose_label):
+def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, rose_label, spots=()):
     """Ferries, bridges, honest soundings, lights, conspicuous objects and the compass rose.
     Drawn on a transparent 2x overlay (thin dashes and hairlines need the resolution), reduced,
     and laid over the print. Sizes below are in overlay pixels."""
@@ -427,8 +451,18 @@ def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, ro
             d.ellipse([x - 4 * Z, y - 4 * Z, x + 4 * Z, y + 4 * Z], outline=ink, width=Z)
             d.ellipse([x - Z, y - Z, x + Z, y + Z], fill=ink)
             text(d, (x + 8 * Z, y + 4 * Z), lab["name"], f_small, ink, track=0.05, halo=(paper, 3 * Z))
+    f_h = font("IBMPlexSans-Italic", 9 * Z)
+    brown = C("contour")
+    named = [P(lab["lat"], lab["lon"]) for lab in sheet.get("label", [])]
+    for yy, xx, h in spots:  # spot heights in the brown plate, clear of the named places
+        x, y = xx * up, yy * up
+        if any((x - a) ** 2 + (y - b) ** 2 < (90 * Z) ** 2 for a, b in named):
+            continue
+        d.ellipse([x - 1.5 * Z, y - 1.5 * Z, x + 1.5 * Z, y + 1.5 * Z], fill=brown)
+        text(d, (x + 5 * Z, y + 4 * Z), f"{h}", f_h, brown, halo=(paper, 2 * Z))
     if rose:  # the compass rose, with the sun (or moon) on its ring
         deep = tuple(int(v * 255) for v in chart_colour("bands", day, 4))
+        arm = tuple(int(v * 255) for v in mix(pal["ink"], chart_colour("bands", day, 4), 0.3))
         d.ellipse([rx - R, ry - R, rx + R, ry + R], outline=ink, width=Z)
         d.ellipse([rx - R + 14 * Z, ry - R + 14 * Z, rx + R - 14 * Z, ry + R - 14 * Z], outline=ink, width=Z)
         for deg in range(0, 360, 5):
@@ -442,8 +476,8 @@ def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, ro
             tp = (rx + math.sin(a) * R * ln, ry - math.cos(a) * R * ln)
             l_ = (rx + math.sin(a - math.pi / 2) * 7 * Z, ry - math.cos(a - math.pi / 2) * 7 * Z)
             r_ = (rx + math.sin(a + math.pi / 2) * 7 * Z, ry - math.cos(a + math.pi / 2) * 7 * Z)
-            d.polygon([(rx, ry), l_, tp], fill=ink)
-            d.polygon([(rx, ry), r_, tp], outline=ink, fill=deep)
+            d.polygon([(rx, ry), l_, tp], fill=arm)  # a shade under the ink: the rose shouldn't outweigh the strait
+            d.polygon([(rx, ry), r_, tp], outline=arm, fill=deep)
         if rose_az is not None:
             a = math.radians(rose_az)
             d.line([(rx + math.sin(a) * (R - 14 * Z), ry - math.cos(a) * (R - 14 * Z)), (rx + math.sin(a) * (R + 3 * Z), ry - math.cos(a) * (R + 3 * Z))], fill=over, width=3 * Z)
@@ -525,7 +559,7 @@ def dms(v, lat):
 
 
 # ---------------------------------------------------------------- the print
-def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_out=None, only_if_changed=False,
+def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_out=None,
            plate=None, state_only=False):
     sheet = tomllib.loads((SHEETS / f"{sheet_id}.toml").read_text())
     tz = when.tzinfo
@@ -578,28 +612,6 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     if state_only:
         return state, False
 
-    # Only the light changes between editions. When it hasn't changed visibly since the last
-    # print (same sheet, sun within a few degrees, same tint), the widgets get fresh numbers and
-    # the print on screen stays.
-    # Steps: 12° of sun direction is about the least turn of the shadows you'd notice; height in
-    # fine steps near the horizon, where the colours move fast, and coarse ones at midday.
-    if s_alt > -2:
-        light_key = ["sun", round(draw_az / 12), round(alt / 2) if alt < 10 else round(alt / 6) * 100]
-    elif m_alt > 0:
-        light_key = ["moon", round(draw_az / 20), round(alt / 10), round(m_lit * 5)]
-    else:
-        light_key = ["dark"]
-    me = Path(__file__).resolve()
-    signature = dict(sheet=sheet_id, size=[W, H, rail, S], light=light_key, day=round(day, 1), gold=round(gold * day, 1),
-                     code=me.stat().st_mtime, sheet_file=(SHEETS / f"{sheet_id}.toml").stat().st_mtime)
-    sig_path = CACHE / "light.json"
-    if only_if_changed:
-        try:
-            if json.loads(sig_path.read_text()) == signature:
-                return state, False
-        except (OSError, ValueError):
-            pass
-
     dem = dem_for(sheet_id, sheet, W, H).astype(np.float32)
     soft = nd.gaussian_filter(dem, sheet.get("relief", 1.2))
     z = nd.zoom(soft, S, order=3) if S != 1 else soft
@@ -624,7 +636,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     _ll = lambda px, py: unmerc(px / S + gx - W / 2, py / S + gy - H / 2, sheet["zoom"])
     osm = osm_for(sheet_id, sheet, W, H) if (sheet.get("osm") or chart) else None
     if chart:  # İstanbul is a strait, not a mountain: draw it the way sailors do
-        col, wmask, depth = chart_base(sheet_id, sheet, osm, k, day, pal, _ll, mpp, Ws, Hs)
+        col, wmask, depth, spots = chart_base(sheet_id, sheet, osm, k, z, day, pal, _ll, mpp, Ws, Hs)
         del k
         pal["water"] = chart_colour("bands", day, 2)
         zc = None
@@ -687,7 +699,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
             rose_az, rose_label = m_az, f"MOON {m_az:.0f}°"
         else:
             rose_az, rose_label = None, ""
-        chart_marks(base, sheet, osm, wmask, depth, day, pal, _px, mpp, rose_az, rose_label)
+        chart_marks(base, sheet, osm, wmask, depth, day, pal, _px, mpp, rose_az, rose_label, spots)
     elif osm:  # the road, rail and ferry plates, drawn once for every output
         C0 = lambda c, a=255: tuple(int(v * 255) for v in pal[c]) + (a,)
         lay = Image.new("RGBA", base.size, (0, 0, 0, 0))
@@ -732,12 +744,13 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
         to_ll = lambda px, py: unmerc(px / S + x0, py / S + y0, sheet["zoom"])
 
         # frame: paper margin, a minute band between two rules, coordinates in the margin
-        M, B = 22 * S, 7 * S
+        M, B = 22 * S, 4 * S
         L, T, R, Bt = (rail * S + M), M, Ws - M, Hs - M
         d.rectangle([0, 0, Ws, T - 1], fill=paper); d.rectangle([0, Bt + 1, Ws, Hs], fill=paper)
         d.rectangle([0, 0, L - 1, Hs], fill=paper); d.rectangle([R + 1, 0, Ws, Hs], fill=paper)
         (lat_top, lon_left), (lat_bot, lon_right) = to_ll(L + B, T + B), to_ll(R - B, Bt - B)
         f_coord = font("IBMPlexMono-Regular", 10 * S)
+        band = tuple(int(v * 255) for v in mix(pal["ink"], pal["paper"], 0.3 if day > 0.5 else 0.55))  # the minute band, a tone under the rules
 
         def minute_band(axis):
             if axis == "lon":
@@ -746,7 +759,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                     xa, xb = to_px(lat0, i / 60)[0], to_px(lat0, (i + 1) / 60)[0]
                     xa, xb = max(xa, L), min(xb, R)
                     if xa < xb and i % 2 == 0:
-                        d.rectangle([xa, T, xb, T + B], fill=ink); d.rectangle([xa, Bt - B, xb, Bt], fill=ink)
+                        d.rectangle([xa, T, xb, T + B], fill=band); d.rectangle([xa, Bt - B, xb, Bt], fill=band)
                     if i % 5 == 0 and L + 40 * S < to_px(lat0, i / 60)[0] < R - 40 * S:
                         px = to_px(lat0, i / 60)[0]
                         text(d, (px, T - 7 * S), dms(i / 60, False), f_coord, ink2, anchor="c")
@@ -757,14 +770,10 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                     ya, yb = to_px((i + 1) / 60, lon0)[1], to_px(i / 60, lon0)[1]
                     ya, yb = max(ya, T), min(yb, Bt)
                     if ya < yb and i % 2 == 0:
-                        d.rectangle([L, ya, L + B, yb], fill=ink); d.rectangle([R - B, ya, R, yb], fill=ink)
+                        d.rectangle([L, ya, L + B, yb], fill=band); d.rectangle([R - B, ya, R, yb], fill=band)
                     if i % 5 == 0 and T + 40 * S < to_px(i / 60, lon0)[1] < Bt - 40 * S:
-                        py = to_px(i / 60, lon0)[1]
-                        lab = Image.new("RGBA", (90 * S, 16 * S), (0, 0, 0, 0))
-                        ld = ImageDraw.Draw(lab)
-                        text(ld, (45 * S, 12 * S), dms(i / 60, True), f_coord, ink2 + (255,), anchor="c")
-                        lab = lab.rotate(-90, expand=True)
-                        img.paste(lab, (int(Ws - M + 3 * S), int(py - 45 * S)), lab)
+                        py = to_px(i / 60, lon0)[1]  # inside the neatline: the margin is too narrow to stand it on end
+                        text(d, (R - B - 6 * S, py + 4 * S), dms(i / 60, True), f_coord, ink2, anchor="r", halo=(paper, 3 * S))
         minute_band("lon"); minute_band("lat")
         if osm:  # ODbL: the map credits its data
             text(d, (R, Hs - 7 * S), "© OpenStreetMap" + (" · EMODnet" if chart else " contributors"), f_coord, ink2, anchor="r")
@@ -799,6 +808,13 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                 d.polygon([(px, py - a), (px - a * 0.95, py + a * 0.65), (px + a * 0.95, py + a * 0.65)], fill=over)
                 text(d, (px + 10 * S, py - 2 * S), lab["name"], f_peak, ink, track=0.02, halo=hal)
                 text(d, (px + 10 * S, py + 12 * S), f"{h:.0f}", f_h, ink2, halo=hal)
+            elif lab["kind"] == "water" and lab.get("angle"):  # along a narrow water, the way charts letter a strait
+                tw = int(d.textlength(lab["name"], font=f_water) * 1.4) + 40 * S
+                layer = Image.new("RGBA", (tw, 40 * S), (0, 0, 0, 0))
+                text(ImageDraw.Draw(layer), (tw / 2, 26 * S), lab["name"], f_water, wlabel + (255,), track=0.18, anchor="c",
+                     halo=(C("water") + (255,), 3 * S))
+                layer = layer.rotate(lab["angle"], resample=Image.BICUBIC, expand=True)
+                img.paste(layer, (int(px - layer.width / 2), int(py - layer.height / 2)), layer)
             elif lab["kind"] == "water":
                 text(d, (px, py), lab["name"], f_water, wlabel, track=0.18, anchor="c", halo=(C("water"), 3 * S))
             elif lab["kind"] in ("light", "landmark"):
@@ -880,8 +896,6 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     compose(rail, legend, out, inset)
     if lock_out:  # the lock screen and login have no panel: even margins, no title block
         compose(0, False, lock_out, None)
-    sig_path.parent.mkdir(parents=True, exist_ok=True)
-    sig_path.write_text(json.dumps(signature))
     return state, True
 
 
@@ -894,8 +908,6 @@ def main():
     ap.add_argument("--rail", type=int)
     ap.add_argument("--no-legend", action="store_true", help="leave the title block to the desktop widget")
     ap.add_argument("--state", help="also write what the print shows as JSON here")
-    ap.add_argument("--if-changed", action="store_true",
-                    help="skip the print (exit 3, state still written) when the light hasn't visibly changed")
     ap.add_argument("--inset", help="also write a square inset of the sheet here (the fastfetch logo)")
     ap.add_argument("--plate", choices=["paper", "night"], help="print a fixed plate (fixed light) instead of this moment's")
     ap.add_argument("--state-only", action="store_true", help="only write --state (the almanac the widgets show)")
@@ -910,12 +922,11 @@ def main():
     sheet = a.sheet or (picked.read_text().strip() if picked.exists() else "") or cfg.get("sheet", "istanbul")
     out = a.out if a.out != "-" else str(CACHE / f"print-{when:%H%M}.jpg")
     info, printed = render(sheet, when, out, W, H, a.rail if a.rail is not None else cfg.get("rail", 48), home,
-                           legend=not a.no_legend, inset=a.inset, lock_out=a.lock_out, only_if_changed=a.if_changed,
+                           legend=not a.no_legend, inset=a.inset, lock_out=a.lock_out,
                            plate=a.plate, state_only=a.state_only)
     if a.state:
         import json
         Path(a.state).write_text(json.dumps(info, ensure_ascii=False, indent=1))
-    print(info, file=sys.stderr)
     if not printed:
         sys.exit(3)
     print(out)

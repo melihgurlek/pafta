@@ -112,16 +112,16 @@ TASK_MARGINS = (8, 5)  # across the panel, along it: 32px icons on the 48px rail
 def task_states(p):
     ink, mag, och, ink3, raised = p["ink"], p["magenta"], p["ochre"], p["ink3"], p["raised"]
     return {  # wash (colour, opacity), tick (colour, opacity, length-mode)
-        "normal": ((raised, 0), (ink, 0.55, "short")),
+        "normal": ((raised, 0), (ink, 0.85, "short")),
         "hover": ((raised, 0.55), None),
         "focus": ((raised, 0.75), (mag, 1, "long")),
         "attention": ((och, 0.14), (och, 1, "long")),
-        "minimized": ((raised, 0), (ink3, 0.6, "short")),
+        "minimized": ((raised, 0), (ink3, 0.8, "short")),
         "progress": ((p["blue"], 0.18), None),
-        "normal-hover": ((raised, 0.55), (ink, 0.55, "short")),
+        "normal-hover": ((raised, 0.55), (ink, 0.85, "short")),
         "focus-hover": ((raised, 0.9), (mag, 1, "long")),
         "attention-hover": ((och, 0.2), (och, 1, "long")),
-        "minimized-hover": ((raised, 0.55), (ink3, 0.6, "short")),
+        "minimized-hover": ((raised, 0.55), (ink3, 0.8, "short")),
         "launcher-hover": ((raised, 0.55), None),
     }
 
@@ -165,7 +165,8 @@ def task_frame(prefix, state, side, wash, tick, ox, oy):
     rect = lambda x, y, w, h, st: f'<rect x="{x}" y="{y}" width="{w}" height="{h}" style="{st}"/>'
     blank = lambda w, h: rect(0, 0, w, h, "fill:#000;fill-opacity:0")
     ins = 3  # wash inset from the button edges
-    cw = 22 if tick and tick[2] == "short" else 14  # wider corners = shorter tick
+    # wider corners = shorter tick: on the rail's 48px slots, about 12px running, 28px focused
+    cw = 18 if tick and tick[2] == "short" else 10
     pieces = {
         "topleft": (cw, CH, blank(cw, CH) + rect(ins, ins, cw - ins, CH - ins, wash_st)),
         "topright": (cw, CH, blank(cw, CH) + rect(0, ins, cw - ins, CH - ins, wash_st)),
@@ -179,7 +180,7 @@ def task_frame(prefix, state, side, wash, tick, ox, oy):
     }
     if tick:
         w, h, body = pieces["bottom"]
-        pieces["bottom"] = (w, h, body + rect(0, h - 2, w, 2, f"fill:{tick[0]};fill-opacity:{tick[1]}"))
+        pieces["bottom"] = (w, h, body + rect(0, h - 3, w, 3, f"fill:{tick[0]};fill-opacity:{tick[1]}"))
     flips = {"bottom": "", "top": "v", "right": "t", "left": "th"}[side]
     rename = {
         "v": {"top": "bottom", "bottom": "top", "topleft": "bottomleft", "bottomleft": "topleft",

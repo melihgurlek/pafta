@@ -38,16 +38,11 @@ PlasmoidItem {
         engine: "executable"
         connectedSources: []
         onNewData: (source, data) => {
-            if (source.indexOf("cat ") === 0) {
-                try { root.sheet = JSON.parse(data["stdout"]) } catch (e) {}
-            } else {
-                root.readState()   // a sheet was turned: show its name once it is printed
-            }
+            try { root.sheet = JSON.parse(data["stdout"]) } catch (e) {}
             disconnectSource(source)
         }
     }
     function readState() { shell.connectSource("cat \"${XDG_CACHE_HOME:-$HOME/.cache}/pafta/state.json\"") }
-    function turn(dir) { shell.connectSource("pafta-sun " + dir) }
     Timer { interval: 30000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.readState() }
 
     function fetchWeather() {
@@ -59,18 +54,30 @@ PlasmoidItem {
             try {
                 const c = JSON.parse(xhr.responseText).current
                 const dir = root.winds[Math.round(c.wind_direction_10m / 45) % 8]
-                root.weather = "WEATHER  " + Math.round(c.temperature_2m) + "°  ·  WIND " + dir + " " + Math.round(c.wind_speed_10m) + " KM/H"
+                root.weather = root.sky(c.weather_code) + "  " + Math.round(c.temperature_2m) + "°  ·  WIND " + dir + " " + Math.round(c.wind_speed_10m) + " KM/H"
                 weatherTimer.interval = 20 * 60 * 1000
             } catch (e) {
                 weatherTimer.interval = 3 * 60 * 1000
             }
         }
         xhr.open("GET", "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
-                 + "&current=temperature_2m,wind_speed_10m,wind_direction_10m&timezone=auto")
+                 + "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m&timezone=auto")
         xhr.send()
     }
     Timer { id: weatherTimer; interval: 20 * 60 * 1000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.fetchWeather() }
 
+    function sky(code) {  // WMO weather codes, in a word
+        if (code === 0) return "CLEAR"
+        if (code <= 2) return "PARTLY CLOUDY"
+        if (code === 3) return "OVERCAST"
+        if (code <= 48) return "FOG"
+        if (code <= 57) return "DRIZZLE"
+        if (code <= 67) return "RAIN"
+        if (code <= 77) return "SNOW"
+        if (code <= 82) return "SHOWERS"
+        if (code <= 86) return "SNOW SHOWERS"
+        return "THUNDERSTORM"
+    }
     function pad(n) { return (n < 10 ? "0" : "") + n }
     function skyLine() {
         const s = root.sheet
@@ -135,15 +142,7 @@ PlasmoidItem {
                 id: title
                 text: root.sheet.name || "PAFTA"
                 font { family: root.sans; pixelSize: 21; weight: Font.DemiBold; letterSpacing: 3 }
-                color: nameArea.containsMouse ? root.over : root.ink
-                MouseArea {
-                    id: nameArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                    onClicked: mouse => root.turn(mouse.button === Qt.RightButton ? "prev" : "next")
-                }
+                color: root.ink
             }
             Text {
                 Layout.topMargin: 2
@@ -212,7 +211,7 @@ PlasmoidItem {
             Rule { Layout.topMargin: 4 }
 
             Caps { Layout.topMargin: 10; text: root.skyLine() }
-            Caps { Layout.topMargin: 5; text: root.weather; color: root.ink2; visible: text !== "" }
+            Caps { Layout.topMargin: 5; text: root.weather; visible: text !== "" }
             Item { Layout.fillHeight: true }
         }
     }
