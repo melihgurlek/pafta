@@ -1,72 +1,100 @@
 #!/usr/bin/env bash
-# pafta-sun: print a new edition of the map sheet and put it on the desktop.
-# Run every 10 minutes by pafta-sun.timer, so the shadows follow the sun (and the moon).
+# pafta-sun: the sheet's prints and the almanac the widgets show.
+# The prints are fixed plates, a paper one and a night one per sheet. They're printed once (and
+# again only when the sheet or the renderer changes); Kigae puts up the one for the hour at
+# sunrise and sunset. What moves (the clock, the sun and moon, the weather) lives in the widgets.
 #
-#   pafta-sun                 print now
-#   pafta-sun next | prev     turn the atlas to the next or previous sheet, then print
+#   pafta-sun                 refresh the almanac (pafta-sun.timer, every 10 min; no printing)
+#   pafta-sun prints          print the current sheet's plates if missing or out of date
+#   pafta-sun mood            match the lock screen and fastfetch inset to the hour's plate
+#                             (Kigae's hook: after a switch, and at sunrise and sunset)
+#   pafta-sun next | prev     turn the atlas to the next or previous sheet and put it up
 #   pafta-sun sheet <id>      open a given sheet (see `pafta-sun sheets`)
 #   pafta-sun sheets          list the sheets
-#   pafta-sun quick           put the last print up at once and reprint in the background
-#                             (Kigae's switch hook: the switch doesn't wait for a render)
 set -euo pipefail
 # systemd's user PATH leaves out ~/.local/bin, where uv (which runs pafta-print) lives
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 here=$(dirname "$(readlink -f "$0")")
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/pafta
 state=${XDG_STATE_HOME:-$HOME/.local/state}/pafta
+prints=${XDG_DATA_HOME:-$HOME/.local/share}/pafta/prints
 sheets_dir=$here/../sheets
 [[ -d $sheets_dir ]] || sheets_dir=${XDG_DATA_HOME:-$HOME/.local/share}/pafta/sheets
-mkdir -p "$cache" "$state"
+mkdir -p "$cache" "$state" "$prints"
 
 mapfile -t sheets < <(find "$sheets_dir" -name '*.toml' -printf '%f\n' | sed 's/\.toml$//' | sort)
-current=$(cat "$state/sheet" 2>/dev/null || echo agri)
+current=$(cat "$state/sheet" 2>/dev/null || echo istanbul)
+
+lock() { kwriteconfig6 --file kscreenlockerrc --group Greeter --group LnF --group General --key "$1" "$2"; }
+
+# paper or night: whichever colour scheme Kigae put on for the hour
+plate_now() {
+    [[ $(kreadconfig6 --file kdeglobals --group General --key ColorScheme) == PaftaNight ]] && echo night || echo paper
+}
+
+almanac() {
+    local rc=0 st=$cache/state.json
+    "$here/pafta-print" --sheet "$current" --state-only --state "$st.new" 2>/dev/null >/dev/null || rc=$?
+    [[ $rc == 0 || $rc == 3 ]] || exit "$rc"
+    mv "$st.new" "$st"
+    # the lock screen's legend box reads the sheet from kscreenlockerrc (the greeter can't read files)
+    for pair in paftaName:.name paftaRegion:.region paftaCoords:.coords paftaScale:.scale \
+                paftaPxPerKm:.px_per_km paftaSegPx:.seg_px paftaBarKm:.bar_km paftaNote:.note paftaContour:.contour; do
+        lock "${pair%%:*}" "$(jq -r "${pair#*:}" "$st")"
+    done
+    lock paftaSky "$(jq -r 'if .sun.alt > -1 then "SUN  \(.sun.az)°  \(.sun.alt)°  ·  SETS \(.sun.set)" elif .moon.alt > 0 then "MOON  \(.moon.az)°  \(.moon.alt)°  ·  \(.moon.lit)% LIT" else "NIGHT  ·  SUNRISE \(.sun.rise)" end' "$st")"
+}
+
+# print a plate only when it's missing or older than its sheet or the renderer
+print_plates() {
+    local p f
+    exec 9>"$cache/.lock"
+    flock -w 120 9
+    for p in paper night; do
+        f=$prints/$current-$p.jpg
+        if [[ ! -f $f || $f -ot $sheets_dir/$current.toml || $f -ot $here/pafta-print ]]; then
+            "$here/pafta-print" --sheet "$current" --plate "$p" --no-legend --out "$prints/.new.jpg" \
+                --lock-out "$prints/.lock-new.jpg" --inset "$prints/.inset-new.png" 2>/dev/null >/dev/null
+            mv "$prints/.lock-new.jpg" "$prints/$current-lock-$p.jpg"
+            mv "$prints/.inset-new.png" "$prints/$current-inset-$p.png"
+            mv "$prints/.new.jpg" "$f"
+        fi
+        # the fixed names Kigae's manifest points at follow the current sheet
+        ln -sfn "$current-$p.jpg" "$prints/$p.jpg"
+        ln -sfn "$current-lock-$p.jpg" "$prints/lock-$p.jpg"
+    done
+}
+
+mood() {
+    local p
+    p=$(plate_now)
+    ln -sfn "$prints/$current-inset-$p.png" "$cache/inset.png"
+    lock paftaNight "$([[ $p == night ]] && echo true || echo false)"
+}
+
+# a new sheet: print it, and put it up under its own file name (Plasma only redraws for a new one)
+show_sheet() {
+    print_plates
+    mood
+    plasma-apply-wallpaperimage "$prints/$current-$(plate_now).jpg" >/dev/null
+    almanac
+}
 
 turn() {  # move $1 sheets along the atlas
     local i n=${#sheets[@]}
     for i in "${!sheets[@]}"; do [[ ${sheets[$i]} == "$current" ]] && break; done
-    echo "${sheets[$(( (i + $1 + n) % n ))]}" > "$state/sheet"
+    current=${sheets[$(( (i + $1 + n) % n ))]}
+    echo "$current" > "$state/sheet"
 }
 
 case ${1:-} in
-    next) turn 1 ;;
-    prev) turn -1 ;;
-    sheet) [[ -f $sheets_dir/${2:-}.toml ]] || { echo "no sheet ${2:-}" >&2; exit 1; }; echo "$2" > "$state/sheet" ;;
-    sheets) printf '%s\n' "${sheets[@]}"; exit ;;
-    quick)
-        last=$(ls -t "$cache"/print-*.jpg 2>/dev/null | head -1)
-        [[ -n $last ]] && plasma-apply-wallpaperimage "$last" >/dev/null
-        systemctl --user start --no-block pafta-sun.service
-        exit ;;
-    "") ;;
-    *) sed -n '2,9p' "$0"; exit 1 ;;
+    "") almanac ;;
+    prints) print_plates ;;
+    mood) print_plates; mood ;;
+    next) turn 1; show_sheet ;;
+    prev) turn -1; show_sheet ;;
+    sheet) [[ -f $sheets_dir/${2:-}.toml ]] || { echo "no sheet ${2:-}" >&2; exit 1; }
+           current=$2; echo "$current" > "$state/sheet"; show_sheet ;;
+    sheets) printf '%s\n' "${sheets[@]}" ;;
+    *) sed -n '2,13p' "$0"; exit 1 ;;
 esac
-
-exec 9>"$cache/.lock"
-flock -w 60 9
-out="$cache/print-$(date +%s).jpg"
-# a plain tick only prints when the light has visibly changed; turning a sheet always prints
-changed=--if-changed
-[[ -n ${1:-} ]] && changed=
-rc=0
-"$here/pafta-print" --no-legend $changed --state "$cache/state.json.new" --inset "$cache/inset.png.new" \
-    --lock-out "$cache/lock-new.jpg" --out "$out" 2>/dev/null >/dev/null || rc=$?
-[[ $rc == 0 || $rc == 3 ]] || exit "$rc"
-mv "$cache/state.json.new" "$cache/state.json"
-
-# the lock screen's legend box reads the sheet from kscreenlockerrc (the greeter can't read
-# files); its sun line changes every tick, so this runs whether or not there's a new print
-lock() { kwriteconfig6 --file kscreenlockerrc --group Greeter --group LnF --group General --key "$1" "$2"; }
-st=$cache/state.json
-for pair in paftaName:.name paftaRegion:.region paftaCoords:.coords paftaScale:.scale \
-            paftaPxPerKm:.px_per_km paftaSegPx:.seg_px paftaBarKm:.bar_km paftaNote:.note paftaContour:.contour; do
-    lock "${pair%%:*}" "$(jq -r "${pair#*:}" "$st")"
-done
-lock paftaSky "$(jq -r 'if .sun.alt > -1 then "GÜNEŞ  \(.sun.az)°  \(.sun.alt)°  ·  BATIŞ \(.sun.set)" elif .moon.alt > 0 then "AY  \(.moon.az)°  \(.moon.alt)°  ·  %\(.moon.lit)" else "GECE  ·  DOĞUŞ \(.sun.rise)" end' "$st")"
-lock paftaNight "$(jq -r 'if .day < 0.5 then "true" else "false" end' "$st")"
-
-[[ $rc == 3 ]] && exit 0   # same light as the print on screen: nothing to redraw
-mv "$cache/inset.png.new" "$cache/inset.png"
-mv "$cache/lock-new.jpg" "$cache/lock.jpg"   # even margins, for the lock screen
-# Plasma only crossfades to a new file name; keep the one on screen until the new one is up
-plasma-apply-wallpaperimage "$out" >/dev/null
-find "$cache" -maxdepth 1 -name 'print-*.jpg' ! -name "${out##*/}" -mmin +1 -delete

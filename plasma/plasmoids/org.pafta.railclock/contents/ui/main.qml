@@ -14,10 +14,10 @@ PlasmoidItem {
 
     readonly property string sans: "IBM Plex Sans"
     readonly property string mono: "IBM Plex Mono"
-    readonly property var days: ["PAZ", "PZT", "SAL", "ÇAR", "PER", "CUM", "CMT"]
-    readonly property var daysLong: ["PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ"]
-    readonly property var months: ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ",
-                                   "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"]
+    readonly property var days: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+    readonly property var daysLong: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
+    readonly property var months: ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY",
+                                   "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"]
     property date now: new Date()
     property var sheet: ({})
 
@@ -147,13 +147,13 @@ PlasmoidItem {
             Layout.margins: Kirigami.Units.largeSpacing
             visible: !!root.sheet.sun
             Text {
-                text: root.sheet.sun ? "DOĞUŞ  " + root.sheet.sun.rise : ""
+                text: root.sheet.sun ? "SUNRISE  " + root.sheet.sun.rise : ""
                 font { family: root.sans; pixelSize: 10; weight: Font.Medium; letterSpacing: 1.3 }
                 color: Kirigami.Theme.textColor
             }
             Item { Layout.fillWidth: true }
             Text {
-                text: root.sheet.sun ? "BATIŞ  " + root.sheet.sun.set : ""
+                text: root.sheet.sun ? "SUNSET  " + root.sheet.sun.set : ""
                 font { family: root.sans; pixelSize: 10; weight: Font.Medium; letterSpacing: 1.3 }
                 color: Kirigami.Theme.textColor
             }

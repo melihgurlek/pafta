@@ -27,9 +27,9 @@ Item {
     readonly property color road: night ? "#D0705A" : "#B5452F"
     readonly property string sans: "IBM Plex Sans"
     readonly property string mono: "IBM Plex Mono"
-    readonly property var days: ["PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ"]
-    readonly property var months: ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ",
-                                   "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"]
+    readonly property var days: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
+    readonly property var months: ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY",
+                                   "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"]
     property date now: new Date()
     property string message: ""
     property bool awake: false
@@ -131,7 +131,7 @@ Item {
                 PathLine { x: 14; y: 30 } PathLine { x: 7; y: 23 } }
         }
         Text { anchors { horizontalCenter: arrow.horizontalCenter; bottom: arrow.top; bottomMargin: 1 }
-               text: "K"; font { family: ui.sans; pixelSize: 9; weight: Font.DemiBold } color: ui.ink }
+               text: "N"; font { family: ui.sans; pixelSize: 9; weight: Font.DemiBold } color: ui.ink }
 
         component Caps: Text { font { family: ui.sans; pixelSize: 10; weight: Font.Medium; letterSpacing: 1.3 } color: ui.ink }
         component Rule: Rectangle { Layout.fillWidth: true; height: 1; color: ui.ink; opacity: 0.35 }
@@ -153,7 +153,7 @@ Item {
                 Item { Layout.fillWidth: true }
                 Text { text: config.paftaScale || ""; font { family: ui.mono; pixelSize: 10 } color: ui.ink }
             }
-            Caps { Layout.topMargin: 10; text: config.paftaNote || ("EŞ YÜKSELTİ ARALIĞI " + (config.paftaContour || 50) + " M"); color: ui.ink2 }
+            Caps { Layout.topMargin: 10; text: config.paftaNote || ""; color: ui.ink2 }
             Rule { Layout.topMargin: 10 }
             RowLayout {
                 Layout.topMargin: 6; Layout.fillWidth: true

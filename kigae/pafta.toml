@@ -4,7 +4,7 @@ schema = 1
 id = "pafta"
 name = "Pafta"
 kanji = "△"
-tagline = "a map sheet, reprinted under the real sun"
+tagline = "a map sheet: paper by day, a chart by night"
 preview = "./pafta/docs/desktop.jpg"
 
 [plasma]
@@ -27,14 +27,12 @@ layout = "./pafta/plasma/layout.js"
 "org.kde.kdecoration2/ButtonsOnRight" = "IAX"
 "Plugins/blurEnabled" = false
 
-# the lock screen: Pafta's legend box over the even-margin print (pafta-sun writes both)
+# the lock screen: Pafta's legend box over the even-margin print of the hour's plate
 [kconfig.plasmashellrc]
 "Shell/ShellPackage" = "org.pafta.lockscreen"
 
 [kconfig.kscreenlockerrc]
 "Greeter/WallpaperPlugin" = "org.kde.image"
-"Greeter/Wallpaper/org.kde.image/General/Image" = "file:///home/melih/.cache/pafta/lock.jpg"
-"Greeter/Wallpaper/org.kde.image/General/PreviewImage" = "file:///home/melih/.cache/pafta/lock.jpg"
 
 [kconfig.konsolerc]
 "Desktop Entry/DefaultProfile" = "Pafta.profile"
@@ -57,28 +55,34 @@ layout = "./pafta/plasma/layout.js"
 "material-icon-theme.folders.color" = "#9A6A42"
 "material-icon-theme.files.color" = "#8F918C"
 
-# Paper by day, the chart at night. The map itself follows the sun on its own (pafta-sun).
+# Paper by day, the chart at night: two fixed plates of the sheet (pafta-sun prints them once).
 [daynight.light]
+wallpaper = "~/.local/share/pafta/prints/paper.jpg"
 colors = "PaftaPaper"
 icons = "Tela-circle-9A6A42"
 style = "pafta-paper"
 kconfig.kwinrc."org.kde.kdecoration2/theme" = "__aurorae__svg__PaftaPaper"
 kconfig.katerc."KTextEditor Renderer/Color Theme" = "Pafta Paper"
 kconfig.kwriterc."KTextEditor Renderer/Color Theme" = "Pafta Paper"
+kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/Image" = "file:///home/melih/.local/share/pafta/prints/lock-paper.jpg"
+kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/PreviewImage" = "file:///home/melih/.local/share/pafta/prints/lock-paper.jpg"
 
 [daynight.dark]
+wallpaper = "~/.local/share/pafta/prints/night.jpg"
 colors = "PaftaNight"
 icons = "Tela-circle-9A6A42-dark"
 style = "pafta-night"
 kconfig.kwinrc."org.kde.kdecoration2/theme" = "__aurorae__svg__PaftaNight"
 kconfig.katerc."KTextEditor Renderer/Color Theme" = "Pafta Night"
 kconfig.kwriterc."KTextEditor Renderer/Color Theme" = "Pafta Night"
+kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/Image" = "file:///home/melih/.local/share/pafta/prints/lock-night.jpg"
+kconfig.kscreenlockerrc."Greeter/Wallpaper/org.kde.image/General/PreviewImage" = "file:///home/melih/.local/share/pafta/prints/lock-night.jpg"
 
 [services]
 enable = ["pafta-sun.timer"]
 
 [hooks]
-after = ["~/.local/bin/pafta-sun quick"]  # last print at once, a fresh one in the background
+after = ["~/.local/bin/pafta-sun mood"]  # lock screen and fastfetch inset follow the plate
 
 [install]
 "./pafta/bin/pafta-print" = ".local/bin/pafta-print"

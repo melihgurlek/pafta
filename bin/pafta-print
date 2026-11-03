@@ -6,7 +6,7 @@
 """Print one edition of a Pafta map sheet: real terrain, lit by where the sun (or the moon)
 is over you right now.
 
-    pafta-print [--sheet agri] [--at 2026-11-03T17:05] [--out file.png] [--size 1920x1080]
+    pafta-print [--sheet istanbul] [--at 2026-11-03T17:05] [--out file.png] [--size 1920x1080]
 
 Elevation comes from the public AWS terrain tiles (Terrarium encoding, SRTM in Turkey) and is
 cached in ~/.cache/pafta/dem. Everything else is computed here: sun and moon positions, the
@@ -42,7 +42,7 @@ NIGHT = dict(
     wood="#16211B", road="#B9604D", road2="#9C7F45", ferry="#4F86AE",
 )
 GOLD_LIT, GOLD_SHADOW = "#FFE3B8", "#5E4F86"
-MONTHS = "OCAK ŞUBAT MART NİSAN MAYIS HAZİRAN TEMMUZ AĞUSTOS EYLÜL EKİM KASIM ARALIK".split()
+MONTHS = "JANUARY FEBRUARY MARCH APRIL MAY JUNE JULY AUGUST SEPTEMBER OCTOBER NOVEMBER DECEMBER".split()
 
 
 def rgb(h):
@@ -248,7 +248,7 @@ def _osm_scaled(out):
         return out
     k = S / 2
     def sc(v):
-        return [sc(x) for x in v] if isinstance(v[0], list) else [v[0] * k, v[1] * k]
+        return [sc(x) for x in v] if isinstance(v[0], (list, tuple)) else [v[0] * k, v[1] * k]
     return {key: [sc(item) for item in items] for key, items in out.items()}
 
 
@@ -525,7 +525,8 @@ def dms(v, lat):
 
 
 # ---------------------------------------------------------------- the print
-def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_out=None, only_if_changed=False):
+def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_out=None, only_if_changed=False,
+           plate=None, state_only=False):
     sheet = tomllib.loads((SHEETS / f"{sheet_id}.toml").read_text())
     tz = when.tzinfo
     s_az, s_alt = sun(when, home[0], home[1])
@@ -539,6 +540,11 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
         src, az, alt, power = "moon", m_az, max(m_alt, 3.0), 0.35 + 0.65 * m_lit
     else:
         src, az, alt, power = "none", 315, 40, 0.0
+    sky_day = day  # what the widgets are told, whatever the plate
+    if plate == "paper":  # a fixed plate: the map makers' light, from the north-west, no tint
+        day, gold, src, az, alt, power = 1.0, 0.0, "sun", 315, 40, 1.0
+    elif plate == "night":
+        day, gold, src, az, alt, power = 0.0, 0.0, "none", 315, 40, 0.0
     # A relief lit from the bottom of the screen reads inside out (valleys look like ridges),
     # so the light's path is mirrored to cross the top of the map: east, north, west.
     draw_az = (180 - az) % 360 if 90 < az < 270 else az
@@ -552,7 +558,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     mpp = 156543.03392 * math.cos(math.radians(lat0)) / 2 ** sheet["zoom"]
     chart = sheet.get("style") == "chart"
     bar_km = next(b for b in (10, 5, 2, 1, 0.5) if b * 1000 / mpp <= 180)  # the bar fits the box
-    note = "DERİNLİKLER METRE · EMODNET" if chart else f"EŞ YÜKSELTİ ARALIĞI {sheet.get('contour', 50)} M"
+    note = "SEA DEPTHS IN METRES" if chart else f"CONTOUR LINES EVERY {sheet.get('contour', 50)} M"
     diag_mm = home[2] * 25.4
     scale = mpp * 1000 / (diag_mm / math.hypot(W, H))
     scale_txt = f"1 : {round(scale, -3):,.0f}".replace(",", " ")
@@ -560,14 +566,17 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     if sset and when > sset:  # after dark the next sunrise is tomorrow's
         rise = sun_times(when.date() + dt.timedelta(days=1), home[0], home[1], tz)[0]
     state = dict(sheet=sheet_id, name=sheet["name"], region=sheet["region"],
-                 coords=f"{dms(lat0, True)} K  {dms(lon0, False)} D", scale=scale_txt,
+                 coords=f"{dms(lat0, True)} N  {dms(lon0, False)} E", scale=scale_txt,
                  px_per_km=round(1000 / mpp, 2), contour=sheet.get("contour", 50),
                  bar_km=bar_km, seg_px=round(bar_km * 1000 / mpp / 5, 2), note=note,
                  sun=dict(az=round(s_az), alt=round(s_alt), rise=f"{rise:%H:%M}" if rise else "",
                           set=f"{sset:%H:%M}" if sset else ""),
                  moon=dict(az=round(m_az), alt=round(m_alt), lit=round(m_lit * 100)),
-                 light=src, day=round(day, 2), printed=f"{when:%H:%M}", home=dict(lat=home[0], lon=home[1]),
+                 light=src, day=round(sky_day, 2), printed=f"{when:%H:%M}", home=dict(lat=home[0], lon=home[1]),
                  sheets=sorted(p.stem for p in SHEETS.glob("*.toml")))
+
+    if state_only:
+        return state, False
 
     # Only the light changes between editions. When it hasn't changed visibly since the last
     # print (same sheet, sun within a few degrees, same tint), the widgets get fresh numbers and
@@ -670,10 +679,12 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     base = Image.fromarray((np.clip(col, 0, 1) * 255).astype(np.uint8))
     del col
     if chart:
-        if s_alt > -1:
-            rose_az, rose_label = s_az, f"GÜNEŞ {s_az:.0f}°"
+        if plate:  # a fixed plate doesn't name a sun that moves on without it
+            rose_az, rose_label = None, ""
+        elif s_alt > -1:
+            rose_az, rose_label = s_az, f"SUN {s_az:.0f}°"
         elif m_alt > 0:
-            rose_az, rose_label = m_az, f"AY {m_az:.0f}°"
+            rose_az, rose_label = m_az, f"MOON {m_az:.0f}°"
         else:
             rose_az, rose_label = None, ""
         chart_marks(base, sheet, osm, wmask, depth, day, pal, _px, mpp, rose_az, rose_label)
@@ -756,7 +767,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                         img.paste(lab, (int(Ws - M + 3 * S), int(py - 45 * S)), lab)
         minute_band("lon"); minute_band("lat")
         if osm:  # ODbL: the map credits its data
-            text(d, (R, Hs - 7 * S), "© OpenStreetMap" + (" · EMODnet" if chart else " katkıcıları"), f_coord, ink2, anchor="r")
+            text(d, (R, Hs - 7 * S), "© OpenStreetMap" + (" · EMODnet" if chart else " contributors"), f_coord, ink2, anchor="r")
         d.rectangle([L, T, R, Bt], outline=ink, width=int(1.6 * S))
         d.rectangle([L + B, T + B, R - B, Bt - B], outline=ink, width=int(0.8 * S))
 
@@ -825,20 +836,20 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
             text(d, (p, by + 126 * S), note, f_small, ink2, track=0.12)
             d.line([p, by + 139 * S, bx + bw - 20 * S, by + 139 * S], fill=ink2, width=S)
             if src == "moon" or (day < 0.5 and m_alt > 0):
-                sky_txt = f"AY  {m_az:.0f}°  {m_alt:.0f}°  ·  %{m_lit * 100:.0f}"
+                sky_txt = f"MOON  {m_az:.0f}°  {m_alt:.0f}°  ·  {m_lit * 100:.0f}% LIT"
             elif s_alt > -0.833:
                 _, sset = sun_times(when.date(), home[0], home[1], tz)
-                sky_txt = f"GÜNEŞ  {s_az:.0f}°  {s_alt:.0f}°" + (f"  ·  BATIŞ {sset:%H:%M}" if sset else "")
+                sky_txt = f"SUN  {s_az:.0f}°  {s_alt:.0f}°" + (f"  ·  SETS {sset:%H:%M}" if sset else "")
             else:
                 rise, _ = sun_times(when.date() + dt.timedelta(days=1 if when.hour >= 12 else 0), home[0], home[1], tz)
-                sky_txt = "GECE" + (f"  ·  DOĞUŞ {rise:%H:%M}" if rise else "")
+                sky_txt = "NIGHT" + (f"  ·  SUNRISE {rise:%H:%M}" if rise else "")
             text(d, (p, by + 159 * S), sky_txt, f_small, ink, track=0.12)
-            text(d, (p, by + 174 * S), f"BASKI  {when.day} {MONTHS[when.month - 1]} {when.year}  {when:%H:%M}", f_small, ink2, track=0.12)
+            text(d, (p, by + 174 * S), f"PRINTED  {when.day} {MONTHS[when.month - 1]} {when.year}  {when:%H:%M}", f_small, ink2, track=0.12)
             # north arrow above the box
             ax, ay = bx + bw - 16 * S, by - 22 * S
             d.polygon([(ax, ay - 34 * S), (ax - 7 * S, ay), (ax, ay - 7 * S)], fill=ink)
             d.polygon([(ax, ay - 34 * S), (ax + 7 * S, ay), (ax, ay - 7 * S)], outline=ink, fill=box, width=S)
-            text(d, (ax, ay - 40 * S), "K", f_place, ink, anchor="c")
+            text(d, (ax, ay - 40 * S), "N", f_place, ink, anchor="c")
 
         img = img.resize((W, H), Image.LANCZOS)
         if inset:  # the terminal's inset map (fastfetch): the whole feature, unlabelled, framed
@@ -886,6 +897,8 @@ def main():
     ap.add_argument("--if-changed", action="store_true",
                     help="skip the print (exit 3, state still written) when the light hasn't visibly changed")
     ap.add_argument("--inset", help="also write a square inset of the sheet here (the fastfetch logo)")
+    ap.add_argument("--plate", choices=["paper", "night"], help="print a fixed plate (fixed light) instead of this moment's")
+    ap.add_argument("--state-only", action="store_true", help="only write --state (the almanac the widgets show)")
     ap.add_argument("--lock-out", help="also write the print with even margins (no panel) here, for lock and login")
     a = ap.parse_args()
     cfg = tomllib.loads(CONFIG.read_text()) if CONFIG.exists() else {}
@@ -894,10 +907,11 @@ def main():
     when = dt.datetime.fromisoformat(a.at).replace(tzinfo=tz) if a.at else dt.datetime.now(tz)
     W, H = map(int, (a.size or cfg.get("size", "1920x1080")).split("x"))
     picked = STATE / "sheet"
-    sheet = a.sheet or (picked.read_text().strip() if picked.exists() else "") or cfg.get("sheet", "agri")
+    sheet = a.sheet or (picked.read_text().strip() if picked.exists() else "") or cfg.get("sheet", "istanbul")
     out = a.out if a.out != "-" else str(CACHE / f"print-{when:%H%M}.jpg")
     info, printed = render(sheet, when, out, W, H, a.rail if a.rail is not None else cfg.get("rail", 48), home,
-                           legend=not a.no_legend, inset=a.inset, lock_out=a.lock_out, only_if_changed=a.if_changed)
+                           legend=not a.no_legend, inset=a.inset, lock_out=a.lock_out, only_if_changed=a.if_changed,
+                           plate=a.plate, state_only=a.state_only)
     if a.state:
         import json
         Path(a.state).write_text(json.dumps(info, ensure_ascii=False, indent=1))

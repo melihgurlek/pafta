@@ -31,9 +31,9 @@ Rectangle {
     readonly property color road: night ? "#D0705A" : "#B5452F"
     readonly property string sans: "IBM Plex Sans"
     readonly property string mono: "IBM Plex Mono"
-    readonly property var days: ["PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ"]
-    readonly property var months: ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ",
-                                   "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"]
+    readonly property var days: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
+    readonly property var months: ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY",
+                                   "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"]
 
     property string userName: userModel.lastUser
     property string realName: ""
@@ -156,7 +156,7 @@ Rectangle {
                 PathLine { x: 14; y: 30 } PathLine { x: 7; y: 23 } }
         }
         Text { anchors { horizontalCenter: arrow.horizontalCenter; bottom: arrow.top; bottomMargin: 1 }
-               text: "K"; font { family: root.sans; pixelSize: 9; weight: Font.DemiBold } color: root.ink }
+               text: "N"; font { family: root.sans; pixelSize: 9; weight: Font.DemiBold } color: root.ink }
 
         component Caps: Text { font { family: root.sans; pixelSize: 10; weight: Font.Medium; letterSpacing: 1.3 } color: root.ink }
         component Rule: Rectangle { Layout.fillWidth: true; height: 1; color: root.ink; opacity: 0.35 }
@@ -184,7 +184,7 @@ Rectangle {
                 Item { Layout.fillWidth: true }
                 Text { text: config.sheetScale || ""; font { family: root.mono; pixelSize: 10 } color: root.ink }
             }
-            Caps { Layout.topMargin: 10; text: config.note || ("EŞ YÜKSELTİ ARALIĞI " + (config.contour || 50) + " M"); color: root.ink2 }
+            Caps { Layout.topMargin: 10; text: config.note || ""; color: root.ink2 }
             Rule { Layout.topMargin: 10 }
             RowLayout {
                 Layout.topMargin: 6; Layout.fillWidth: true

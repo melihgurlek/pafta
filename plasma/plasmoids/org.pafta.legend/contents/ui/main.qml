@@ -17,10 +17,10 @@ PlasmoidItem {
     readonly property color ink: Kirigami.Theme.textColor
     readonly property color ink2: Kirigami.Theme.disabledTextColor
     readonly property color over: Kirigami.Theme.activeTextColor   // the magenta overprint
-    readonly property var days: ["PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ"]
-    readonly property var months: ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ",
-                                   "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"]
-    readonly property var winds: ["K", "KD", "D", "GD", "G", "GB", "B", "KB"]
+    readonly property var days: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
+    readonly property var months: ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY",
+                                   "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"]
+    readonly property var winds: ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     property date now: new Date()
     property var sheet: ({})
     property string weather: ""
@@ -59,7 +59,7 @@ PlasmoidItem {
             try {
                 const c = JSON.parse(xhr.responseText).current
                 const dir = root.winds[Math.round(c.wind_direction_10m / 45) % 8]
-                root.weather = "HAVA  " + Math.round(c.temperature_2m) + "°  ·  " + dir + " " + Math.round(c.wind_speed_10m) + " KM/SA"
+                root.weather = "WEATHER  " + Math.round(c.temperature_2m) + "°  ·  WIND " + dir + " " + Math.round(c.wind_speed_10m) + " KM/H"
                 weatherTimer.interval = 20 * 60 * 1000
             } catch (e) {
                 weatherTimer.interval = 3 * 60 * 1000
@@ -75,9 +75,9 @@ PlasmoidItem {
     function skyLine() {
         const s = root.sheet
         if (!s.sun) return ""
-        if (s.sun.alt > -1) return "GÜNEŞ  " + s.sun.az + "°  " + s.sun.alt + "°  ·  BATIŞ " + s.sun.set
-        if (s.moon && s.moon.alt > 0) return "AY  " + s.moon.az + "°  " + s.moon.alt + "°  ·  %" + s.moon.lit + "  ·  DOĞUŞ " + s.sun.rise
-        return "GECE  ·  DOĞUŞ " + s.sun.rise
+        if (s.sun.alt > -1) return "SUN  " + s.sun.az + "°  " + s.sun.alt + "°  ·  SETS " + s.sun.set
+        if (s.moon && s.moon.alt > 0) return "MOON  " + s.moon.az + "°  " + s.moon.alt + "°  ·  " + s.moon.lit + "% LIT  ·  SUNRISE " + s.sun.rise
+        return "NIGHT  ·  SUNRISE " + s.sun.rise
     }
 
     component Caps: Text {
@@ -122,7 +122,7 @@ PlasmoidItem {
         }
         Text {
             anchors { horizontalCenter: arrow.horizontalCenter; bottom: arrow.top; bottomMargin: 1 }
-            text: "K"
+            text: "N"
             font { family: root.sans; pixelSize: 9; weight: Font.DemiBold }
             color: root.ink
         }
@@ -179,7 +179,7 @@ PlasmoidItem {
             }
             Caps {
                 Layout.topMargin: 10
-                text: root.sheet.note || ("EŞ YÜKSELTİ ARALIĞI " + (root.sheet.contour || 50) + " M")
+                text: root.sheet.note || ""
                 color: root.ink2
             }
 
