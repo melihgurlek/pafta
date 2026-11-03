@@ -19,6 +19,8 @@ Item {
     readonly property bool night: config.paftaNight === true || config.paftaNight === "true"
     // the printing plates (palette.toml)
     readonly property color paper: night ? "#141A1F" : "#F3F1EA"
+    readonly property color view: night ? "#0F1418" : "#FBFAF6"
+    readonly property color ink3: night ? "#5F676C" : "#8F918C"
     readonly property color ink: night ? "#C3C7C0" : "#24282D"
     readonly property color ink2: night ? "#8C9296" : "#5E6266"
     readonly property color over: night ? "#CF6A9E" : "#A8336F"
@@ -40,6 +42,10 @@ Item {
     }
 
     Timer { interval: 1000; running: true; repeat: true; triggeredOnStart: true; onTriggered: ui.now = new Date() }
+    property bool blink: true
+    Timer { interval: 530; running: true; repeat: true; onTriggered: ui.blink = !ui.blink }
+    // the field takes the keyboard straight away: typing is all locking asks of you
+    Component.onCompleted: { password.forceActiveFocus(); authenticator.startAuthenticating() }
 
     Connections {
         target: authenticator
@@ -161,39 +167,49 @@ Item {
             }
             Rule { Layout.topMargin: 4 }
 
-            // the one new row: who, and the password as a ruled line
-            RowLayout {
-                Layout.topMargin: 12; Layout.fillWidth: true; spacing: 12
-                Caps { text: kscreenlocker_userName.toLocaleUpperCase(); color: ui.ink2; font.weight: Font.DemiBold }
+            // the one new row: a real field, focused from the start, with the overprint tick on it
+            Caps { Layout.topMargin: 12; text: kscreenlocker_userName.toLocaleUpperCase(Qt.locale("tr_TR")); color: ui.ink2; font.weight: Font.DemiBold }
+            Rectangle {
+                Layout.topMargin: 6; Layout.fillWidth: true
+                height: 36
+                color: ui.view
+                border { width: 1; color: password.activeFocus ? ui.ink : Qt.alpha(ui.ink, 0.55) }
+                Rectangle { width: 3; height: parent.height; color: ui.over; visible: password.activeFocus }
                 QQC2.TextField {
                     id: password
-                    Layout.fillWidth: true
+                    anchors { left: parent.left; right: go.left; verticalCenter: parent.verticalCenter; leftMargin: 13; rightMargin: 6 }
                     echoMode: TextInput.Password
                     passwordCharacter: "●"
                     enabled: !graceLock.running
                     focus: true
+                    padding: 0
                     color: ui.ink
-                    font { family: ui.mono; pixelSize: 13; letterSpacing: 2 }
-                    leftPadding: 0; rightPadding: 0; topPadding: 2; bottomPadding: 5
-                    placeholderText: ui.awake ? "" : "PAROLA"
-                    placeholderTextColor: Qt.alpha(ui.ink2, 0.7)
+                    font { family: ui.mono; pixelSize: 14; letterSpacing: 2 }
+                    placeholderText: "Parolanızı yazın"
+                    placeholderTextColor: ui.ink3
                     selectionColor: ui.over
-                    background: Rectangle {
-                        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                        height: password.activeFocus ? 2 : 1
-                        color: password.activeFocus ? ui.ink : Qt.alpha(ui.ink, 0.5)
-                    }
+                    background: null
+                    cursorDelegate: Rectangle { width: 2; color: ui.over; visible: password.activeFocus && ui.blink }
                     onAccepted: if (text.length || !authenticator.hadPrompt) authenticator.respond(text)
-                    Keys.onEscapePressed: { text = ""; ui.awake = false }
+                    onTextChanged: if (text.length) ui.message = ""
                 }
-                Text { text: "→"; font { family: ui.sans; pixelSize: 16 } color: password.text.length ? ui.over : "transparent"
-                       MouseArea { anchors.fill: parent; onClicked: password.accepted() } }
+                Rectangle {
+                    id: go
+                    anchors { right: parent.right; top: parent.top; bottom: parent.bottom; margins: 4 }
+                    width: height
+                    color: password.text.length ? ui.over : Qt.alpha(ui.ink, 0.08)
+                    Text { anchors.centerIn: parent; text: "→"; font { family: ui.sans; pixelSize: 15; weight: Font.Medium }
+                           color: password.text.length ? ui.view : ui.ink2 }
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: password.accepted() }
+                }
             }
             Caps {
-                Layout.topMargin: 10
-                text: ui.message || (capsLock.locked ? "BÜYÜK HARF KİLİDİ AÇIK" : (config.paftaSky || ""))
-                color: ui.message || capsLock.locked ? ui.road : ui.ink
+                Layout.topMargin: 8
+                text: ui.message || (capsLock.locked ? "BÜYÜK HARF KİLİDİ AÇIK" : "PAROLANIZI YAZIP ENTER'A BASIN")
+                color: ui.message || capsLock.locked ? ui.road : ui.ink2
             }
+            Rule { Layout.topMargin: 10 }
+            Caps { Layout.topMargin: 8; text: config.paftaSky || ""; visible: text !== "" }
             RowLayout {
                 Layout.topMargin: 5; Layout.fillWidth: true; spacing: 14
                 Caps { text: "UYKU"; color: sleepArea.containsMouse ? ui.over : ui.ink2; visible: sessions.canSuspend

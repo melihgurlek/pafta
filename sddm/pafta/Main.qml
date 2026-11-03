@@ -23,6 +23,8 @@ Rectangle {
     readonly property bool night: config.phase ? config.phase === "night" : sunAlt < -2
 
     readonly property color paper: night ? "#141A1F" : "#F3F1EA"
+    readonly property color view: night ? "#0F1418" : "#FBFAF6"
+    readonly property color ink3: night ? "#5F676C" : "#8F918C"
     readonly property color ink: night ? "#C3C7C0" : "#24282D"
     readonly property color ink2: night ? "#8C9296" : "#5E6266"
     readonly property color over: night ? "#CF6A9E" : "#A8336F"
@@ -77,6 +79,9 @@ Rectangle {
     }
 
     Timer { interval: 1000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.now = new Date() }
+    property bool blink: true
+    Timer { interval: 530; running: true; repeat: true; onTriggered: root.blink = !root.blink }
+    Component.onCompleted: password.forceActiveFocus()
 
     function login() {
         if (root.demo) {
@@ -204,37 +209,44 @@ Rectangle {
                 Behavior on opacity { NumberAnimation { duration: 250 } }
 
                 Rule { Layout.topMargin: 4 }
-                RowLayout {
-                    Layout.topMargin: 12; Layout.fillWidth: true; spacing: 12
-                    Caps { text: (root.realName || root.userName).toLocaleUpperCase(Qt.locale("tr_TR")); color: root.ink2; font.weight: Font.DemiBold }
-                    Item {
-                        Layout.fillWidth: true
-                        implicitHeight: password.implicitHeight + 8
-                        TextInput {
-                            id: password
-                            anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
-                            echoMode: TextInput.Password
-                            passwordCharacter: "●"
-                            focus: true
-                            color: root.ink
-                            selectionColor: root.over
-                            font { family: root.mono; pixelSize: 13; letterSpacing: 2 }
-                            onAccepted: root.login()
-                            onTextChanged: if (text.length) root.message = ""
-                            Text { visible: !password.text.length; text: "PAROLA"; color: Qt.alpha(root.ink2, 0.7)
-                                   font { family: root.mono; pixelSize: 13; letterSpacing: 2 } }
-                        }
-                        Rectangle { anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                                    height: password.activeFocus ? 2 : 1; color: password.activeFocus ? root.ink : Qt.alpha(root.ink, 0.5) }
+                Caps { Layout.topMargin: 12; text: (root.realName || root.userName).toLocaleUpperCase(Qt.locale("tr_TR")); color: root.ink2; font.weight: Font.DemiBold }
+                Rectangle {
+                    Layout.topMargin: 6; Layout.fillWidth: true
+                    height: 36
+                    color: root.view
+                    border { width: 1; color: password.activeFocus ? root.ink : Qt.alpha(root.ink, 0.55) }
+                    Rectangle { width: 3; height: parent.height; color: root.over; visible: password.activeFocus }
+                    TextInput {
+                        id: password
+                        anchors { left: parent.left; right: go.left; verticalCenter: parent.verticalCenter; leftMargin: 13; rightMargin: 6 }
+                        echoMode: TextInput.Password
+                        passwordCharacter: "●"
+                        focus: true
+                        clip: true
+                        color: root.ink
+                        selectionColor: root.over
+                        font { family: root.mono; pixelSize: 14; letterSpacing: 2 }
+                        cursorDelegate: Rectangle { width: 2; color: root.over; visible: password.activeFocus && root.blink }
+                        onAccepted: root.login()
+                        onTextChanged: if (text.length) root.message = ""
+                        Text { visible: !password.text.length; text: "Parolanızı yazın"; color: root.ink3
+                               anchors.verticalCenter: parent.verticalCenter; x: 4
+                               font { family: root.mono; pixelSize: 14; letterSpacing: 2 } }
                     }
-                    Text { text: "→"; font { family: root.sans; pixelSize: 16 } color: password.text.length ? root.over : "transparent"
-                           MouseArea { anchors.fill: parent; onClicked: root.login() } }
+                    Rectangle {
+                        id: go
+                        anchors { right: parent.right; top: parent.top; bottom: parent.bottom; margins: 4 }
+                        width: height
+                        color: password.text.length ? root.over : Qt.alpha(root.ink, 0.08)
+                        Text { anchors.centerIn: parent; text: "→"; font { family: root.sans; pixelSize: 15; weight: Font.Medium }
+                               color: password.text.length ? root.view : root.ink2 }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.login() }
+                    }
                 }
                 Caps {
-                    Layout.topMargin: 10
-                    text: root.message || (keyboard.capsLock ? "BÜYÜK HARF KİLİDİ AÇIK" : "")
-                    color: root.road
-                    visible: text !== ""
+                    Layout.topMargin: 8
+                    text: root.message || (keyboard.capsLock ? "BÜYÜK HARF KİLİDİ AÇIK" : "PAROLANIZI YAZIP ENTER'A BASIN")
+                    color: root.message || keyboard.capsLock ? root.road : root.ink2
                 }
                 Rule { Layout.topMargin: 10 }
                 RowLayout {

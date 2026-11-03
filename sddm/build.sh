@@ -9,19 +9,20 @@ rm -rf "$out" && mkdir -p "$out/prints" "$out/fonts"
 cp pafta/* "$out/"
 print=../bin/pafta-print
 state=$(mktemp)
-"$print" --no-legend --state "$state" --out "$out/prints/day.jpg" --at "$(date +%F)T12:40" 2>/dev/null >/dev/null
+scratch=$(mktemp -d)
+"$print" --no-legend --state "$state" --out "$scratch/desk.jpg" --lock-out "$out/prints/day.jpg" --at "$(date +%F)T12:40" 2>/dev/null >/dev/null
 rise=$(jq -r .sun.rise "$state"); set_=$(jq -r .sun.set "$state")
 at() { date -d "@$(( $(date -d "$(date +%F) $1" +%s) + $2 * 60 ))" +%FT%H:%M; }
-"$print" --no-legend --out "$out/prints/dawn.jpg" --at "$(at "$rise" 25)" 2>/dev/null >/dev/null
-"$print" --no-legend --out "$out/prints/dusk.jpg" --at "$(at "$set_" -15)" 2>/dev/null >/dev/null
-"$print" --no-legend --out "$out/prints/night.jpg" --at "$(date +%F)T23:30" 2>/dev/null >/dev/null
+"$print" --no-legend --out "$scratch/desk.jpg" --lock-out "$out/prints/dawn.jpg" --at "$(at "$rise" 25)" 2>/dev/null >/dev/null
+"$print" --no-legend --out "$scratch/desk.jpg" --lock-out "$out/prints/dusk.jpg" --at "$(at "$set_" -15)" 2>/dev/null >/dev/null
+"$print" --no-legend --out "$scratch/desk.jpg" --lock-out "$out/prints/night.jpg" --at "$(date +%F)T23:30" 2>/dev/null >/dev/null
 # what the legend box says about the sheet
 {
     echo "[General]"
     jq -r '"sheetName=\(.name)\nsheetRegion=\(.region)\nsheetCoords=\(.coords)\nsheetScale=\(.scale)\npxPerKm=\(.px_per_km)\ncontour=\(.contour)\nlat=\(.home.lat)\nlon=\(.home.lon)"' "$state"
     echo "demo=false"
 } > "$out/theme.conf"
-rm -f "$state"
+rm -rf "$state" "$scratch"
 f=$HOME/.local/share/fonts/pafta
 cp "$f"/IBMPlexSans-{Light,Regular,Medium,SemiBold}.otf "$f"/IBMPlexMono-Regular.otf "$out/fonts/"
 echo "$out"
