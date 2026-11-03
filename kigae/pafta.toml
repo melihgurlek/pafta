@@ -51,7 +51,7 @@ layout = "./pafta/plasma/layout.js"
 # Paper by day, the chart at night. The map itself follows the sun on its own (pafta-sun).
 [daynight.light]
 colors = "PaftaPaper"
-icons = "Tela-circle-brown"
+icons = "Tela-circle-9A6A42"
 style = "pafta-paper"
 kconfig.kwinrc."org.kde.kdecoration2/theme" = "__aurorae__svg__PaftaPaper"
 kconfig.katerc."KTextEditor Renderer/Color Theme" = "Pafta Paper"
@@ -59,7 +59,7 @@ kconfig.kwriterc."KTextEditor Renderer/Color Theme" = "Pafta Paper"
 
 [daynight.dark]
 colors = "PaftaNight"
-icons = "Tela-circle-brown-dark"
+icons = "Tela-circle-9A6A42-dark"
 style = "pafta-night"
 kconfig.kwinrc."org.kde.kdecoration2/theme" = "__aurorae__svg__PaftaNight"
 kconfig.katerc."KTextEditor Renderer/Color Theme" = "Pafta Night"

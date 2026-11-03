@@ -29,7 +29,7 @@ Design notes and rules are in [DESIGN.md](DESIGN.md).
 
 ## Install
 
-Needs KDE Plasma 6 (Wayland), [uv](https://docs.astral.sh/uv/) (the renderer is a uv script with numpy, scipy and pillow), and these fonts in `~/.local/share/fonts`: [IBM Plex](https://github.com/IBM/plex/releases) Sans, Mono and Serif, and BlexMono from [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts/releases). Icons: [Tela-circle](https://github.com/vinceliuice/Tela-circle-icon-theme) brown (`./install.sh -c brown`).
+Needs KDE Plasma 6 (Wayland), [uv](https://docs.astral.sh/uv/) (the renderer is a uv script with numpy, scipy and pillow), and these fonts in `~/.local/share/fonts`: [IBM Plex](https://github.com/IBM/plex/releases) Sans, Mono and Serif, and BlexMono from [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts/releases). Icons: [Tela-circle](https://github.com/vinceliuice/Tela-circle-icon-theme) in the contour brown: `./install.sh 9A6A42` (not `-c`, which makes the folders circular).
 
 With [Kigae](https://github.com/melihgurlek/Kigae) (live rice switching):
 
