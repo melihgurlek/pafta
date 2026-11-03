@@ -1,0 +1,28 @@
+# Ağrı Dağı (Ararat): the two volcanic cones, the plain of Doğubayazıt to the south-west.
+name = "AĞRI DAĞI"
+region = "Doğubayazıt · Ağrı"
+lat = 39.72
+lon = 44.33
+zoom = 12
+contour = 50        # metres between contour lines
+index = 250         # every index line is drawn heavier
+
+[[label]]
+kind = "peak"
+name = "Büyük Ağrı"
+ele = 5137
+lat = 39.7019
+lon = 44.2983
+
+[[label]]
+kind = "peak"
+name = "Küçük Ağrı"
+ele = 3896
+lat = 39.6514
+lon = 44.4061
+
+[[label]]
+kind = "place"
+name = "Doğubayazıt"
+lat = 39.5468
+lon = 44.0835

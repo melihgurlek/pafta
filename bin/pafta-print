@@ -1,0 +1,468 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["numpy", "scipy", "pillow"]
+# ///
+"""Print one edition of a Pafta map sheet: real terrain, lit by where the sun (or the moon)
+is over you right now.
+
+    pafta-print [--sheet agri] [--at 2026-11-03T17:05] [--out file.png] [--size 1920x1080]
+
+Elevation comes from the public AWS terrain tiles (Terrarium encoding, SRTM in Turkey) and is
+cached in ~/.cache/pafta/dem. Everything else is computed here: sun and moon positions, the
+shading, contours, water, the frame and the title block.
+"""
+import argparse, datetime as dt, glob, io, math, os, subprocess, sys, tomllib, urllib.request
+from pathlib import Path
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+from scipy import ndimage as nd
+
+ROOT = Path(__file__).resolve().parent.parent
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "pafta"
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "pafta" / "pafta.toml"
+S = 2  # everything is drawn at 2x and scaled down: free antialiasing for lines and type
+
+# ---------------------------------------------------------------- palette (the printing plates)
+DAY = dict(
+    paper="#F1EFE8", low="#E5E8DA", mid="#EEEADD", high="#F5F3EE", top="#FBFAF7",
+    shadow="#59627F", lit="#FFFAEE", contour="#9A6A42", water="#D4E3EA", waterline="#5E8EAD",
+    ink="#24282D", ink2="#686C6E", over="#A8336F", box="#F6F4EE",
+)
+NIGHT = dict(
+    paper="#12171C", low="#151B21", mid="#171E25", high="#1A222A", top="#1E262E",
+    shadow="#05070A", lit="#7F93A8", contour="#6E553E", water="#0C1217", waterline="#2C4A5F",
+    ink="#B4B9B3", ink2="#6E757A", over="#C2588F", box="#141A20",
+)
+GOLD_LIT, GOLD_SHADOW = "#FFE3B8", "#5E4F86"
+MONTHS = "OCAK ŞUBAT MART NİSAN MAYIS HAZİRAN TEMMUZ AĞUSTOS EYLÜL EKİM KASIM ARALIK".split()
+
+
+def rgb(h):
+    return np.array([int(h[i:i + 2], 16) for i in (1, 3, 5)], np.float64) / 255
+
+
+def mix(a, b, t):
+    return a + (b - a) * t
+
+
+def smooth(e0, e1, x):
+    t = min(max((x - e0) / (e1 - e0), 0.0), 1.0)
+    return t * t * (3 - 2 * t)
+
+
+# ---------------------------------------------------------------- sky
+def _jd(t):
+    return t.timestamp() / 86400 + 2440587.5
+
+
+def _altaz(ra, dec, t, lat, lon):
+    n = _jd(t) - 2451545.0
+    gmst = (280.46061837 + 360.98564736629 * n) % 360
+    ha = math.radians(gmst + lon) - ra
+    la = math.radians(lat)
+    alt = math.asin(math.sin(la) * math.sin(dec) + math.cos(la) * math.cos(dec) * math.cos(ha))
+    az = math.atan2(-math.sin(ha), math.tan(dec) * math.cos(la) - math.sin(la) * math.cos(ha))
+    return math.degrees(az) % 360, math.degrees(alt)
+
+
+def _ecl_to_eq(lam, beta, n):
+    eps = math.radians(23.439 - 0.0000004 * n)
+    ra = math.atan2(math.sin(lam) * math.cos(eps) - math.tan(beta) * math.sin(eps), math.cos(lam))
+    dec = math.asin(math.sin(beta) * math.cos(eps) + math.cos(beta) * math.sin(eps) * math.sin(lam))
+    return ra, dec
+
+
+def sun_lon(t):
+    n = _jd(t) - 2451545.0
+    g = math.radians((357.528 + 0.9856003 * n) % 360)
+    return math.radians((280.460 + 0.9856474 * n) % 360 + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
+
+
+def sun(t, lat, lon):
+    n = _jd(t) - 2451545.0
+    return _altaz(*_ecl_to_eq(sun_lon(t), 0.0, n), t, lat, lon)
+
+
+def moon(t, lat, lon):
+    """Low-precision moon (about 1°): azimuth, altitude, lit fraction."""
+    n = _jd(t) - 2451545.0
+    L = math.radians((218.316 + 13.176396 * n) % 360)
+    M = math.radians((134.963 + 13.064993 * n) % 360)
+    F = math.radians((93.272 + 13.229350 * n) % 360)
+    lam = L + math.radians(6.289) * math.sin(M)
+    beta = math.radians(5.128) * math.sin(F)
+    az, alt = _altaz(*_ecl_to_eq(lam, beta, n), t, lat, lon)
+    elong = math.acos(math.cos(lam - sun_lon(t)) * math.cos(beta))
+    return az, alt, (1 - math.cos(elong)) / 2
+
+
+def sun_times(day, lat, lon, tz):
+    """Sunrise and sunset (local datetimes) for a date, by stepping through the day."""
+    start = dt.datetime(day.year, day.month, day.day, tzinfo=tz)
+    rise = set_ = None
+    prev = sun(start, lat, lon)[1]
+    for m in range(2, 24 * 60 + 1, 2):
+        t = start + dt.timedelta(minutes=m)
+        a = sun(t, lat, lon)[1]
+        if prev < -0.833 <= a and rise is None:
+            rise = t
+        if prev >= -0.833 > a:
+            set_ = t
+        prev = a
+    return rise, set_
+
+
+# ---------------------------------------------------------------- terrain
+def merc(lat, lon, z):
+    n = 256 * 2 ** z
+    x = (lon + 180) / 360 * n
+    y = (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n
+    return x, y
+
+
+def unmerc(x, y, z):
+    n = 256 * 2 ** z
+    lon = x / n * 360 - 180
+    lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    return lat, lon
+
+
+def dem_for(sheet_id, sheet, W, H):
+    CACHE.joinpath("dem").mkdir(parents=True, exist_ok=True)
+    path = CACHE / "dem" / f"{sheet_id}-{W}x{H}-z{sheet['zoom']}.npy"
+    if path.exists():
+        return np.load(path)
+    z = sheet["zoom"]
+    cx, cy = merc(sheet["lat"], sheet["lon"], z)
+    x0, y0 = int(cx - W / 2), int(cy - H / 2)
+    out = np.zeros((H, W), np.float32)
+    for ty in range(y0 // 256, (y0 + H) // 256 + 1):
+        for tx in range(x0 // 256, (x0 + W) // 256 + 1):
+            url = f"https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{tx}/{ty}.png"
+            a = np.asarray(Image.open(io.BytesIO(urllib.request.urlopen(url, timeout=30).read())).convert("RGB")).astype(np.float32)
+            e = a[..., 0] * 256 + a[..., 1] + a[..., 2] / 256 - 32768
+            ox, oy = tx * 256 - x0, ty * 256 - y0
+            sx, sy, dx, dy = max(0, -ox), max(0, -oy), max(0, ox), max(0, oy)
+            w, h = min(256 - sx, W - dx), min(256 - sy, H - dy)
+            if w > 0 and h > 0:
+                out[dy:dy + h, dx:dx + w] = e[sy:sy + h, sx:sx + w]
+    np.save(path, out)
+    return out
+
+
+def water_mask(dem):
+    """Lakes are perfectly flat in the elevation model, the sea is at or below zero."""
+    rng = nd.maximum_filter(dem, 5) - nd.minimum_filter(dem, 5)
+    flat = rng <= 0.6
+    lab, n = nd.label(flat)
+    if n:
+        sizes = nd.sum(flat, lab, range(1, n + 1))
+        keep = np.zeros(n + 1, bool)
+        keep[1:] = sizes > 1500
+        flat = keep[lab]
+    flat |= dem <= 0.5
+    return nd.binary_closing(nd.binary_opening(flat, iterations=2), iterations=2)
+
+
+def normals(z, m, ve):
+    gy, gx = np.gradient(z * ve, m)
+    nx, ny, nz = -gx, gy, np.ones_like(z)
+    l = np.sqrt(nx * nx + ny * ny + nz * nz)
+    return nx / l, ny / l, nz / l
+
+
+def lambert(n, az, alt):
+    a, e = math.radians(az), math.radians(alt)
+    L = (math.sin(a) * math.cos(e), math.cos(a) * math.cos(e), math.sin(e))
+    return np.clip(n[0] * L[0] + n[1] * L[1] + n[2] * L[2], 0, 1)
+
+
+def cast_shadow(zs, mpp, az, alt):
+    if alt >= 50:
+        return np.zeros_like(zs)
+    a = math.radians(az)
+    dx, dy = math.sin(a), -math.cos(a)
+    tanE = math.tan(math.radians(max(alt, 1.5)))
+    relief = float(zs.max() - zs.min())
+    sh = np.zeros(zs.shape, bool)
+    t, step = 1.0, 1.0
+    while t * mpp * tanE < relief and t < 900:
+        s = nd.shift(zs, (-dy * t, -dx * t), order=1, mode="nearest")
+        sh |= s > zs + t * mpp * tanE + 3
+        t += step
+        step = min(step * 1.12, 6)
+    return nd.gaussian_filter(sh.astype(np.float64), 1.4)
+
+
+def contour(ze, interval, width):
+    f = ze / interval
+    d = np.abs(f - np.round(f)) * interval
+    gy, gx = np.gradient(ze)
+    px = d / (np.sqrt(gx * gx + gy * gy) + 1e-6)
+    return np.clip(width / 2 + 0.5 - px, 0, 1)
+
+
+# ---------------------------------------------------------------- type
+def font(name, size):
+    for d in [Path.home() / ".local/share/fonts/pafta", Path("/usr/share/fonts")]:
+        hits = glob.glob(str(d / "**" / f"{name}.otf"), recursive=True) + glob.glob(str(d / "**" / f"{name}.ttf"), recursive=True)
+        if hits:
+            return ImageFont.truetype(hits[0], size)
+    path = subprocess.run(["fc-match", "-f", "%{file}", name], capture_output=True, text=True).stdout
+    return ImageFont.truetype(path, size)
+
+
+def text(draw, xy, s, f, fill, track=0.0, anchor="l", halo=None):
+    """Draw with letter spacing (in ems). anchor: l, c or r on x; y is the baseline.
+    halo=(colour, width) knocks the map out behind the type, like a printed label."""
+    x, y = xy
+    widths = [draw.textlength(c, font=f) for c in s]
+    total = sum(widths) + track * f.size * (len(s) - 1)
+    x -= {"l": 0, "c": total / 2, "r": total}[anchor]
+    for pass_ in ("halo", "ink") if halo else ("ink",):
+        xx = x
+        for c, w in zip(s, widths):
+            if pass_ == "halo":
+                draw.text((xx, y), c, font=f, fill=halo[0], anchor="ls", stroke_width=halo[1], stroke_fill=halo[0])
+            else:
+                draw.text((xx, y), c, font=f, fill=fill, anchor="ls")
+            xx += w + track * f.size
+    return total
+
+
+def dms(v, lat):
+    d = int(abs(v))
+    m = round((abs(v) - d) * 60)
+    if m == 60:
+        d, m = d + 1, 0
+    return f"{d}°{m:02d}′"
+
+
+# ---------------------------------------------------------------- the print
+def render(sheet_id, when, out, W, H, rail, home):
+    sheet = tomllib.loads((ROOT / "sheets" / f"{sheet_id}.toml").read_text())
+    tz = when.tzinfo
+    s_az, s_alt = sun(when, home[0], home[1])
+    m_az, m_alt, m_lit = moon(when, home[0], home[1])
+    day = smooth(-7, 3, s_alt)                  # 0 night .. 1 day
+    gold = 1 - smooth(2, 16, s_alt)             # warm light when the sun is low
+
+    if s_alt > -2:
+        src, az, alt, power = "sun", s_az, max(s_alt, 2.0), smooth(-2, 4, s_alt)
+    elif m_alt > 0:
+        src, az, alt, power = "moon", m_az, max(m_alt, 3.0), 0.35 + 0.65 * m_lit
+    else:
+        src, az, alt, power = "none", 315, 40, 0.0
+    # A relief lit from the bottom of the screen reads inside out (valleys look like ridges),
+    # so the light's path is mirrored to cross the top of the map: east, north, west.
+    draw_az = (180 - az) % 360 if 90 < az < 270 else az
+
+    pal = {k: mix(rgb(NIGHT[k]), rgb(DAY[k]), day) for k in DAY}
+    lit_c = mix(pal["lit"], rgb(GOLD_LIT), gold * day)
+    sh_c = mix(pal["shadow"], rgb(GOLD_SHADOW), gold * day * 0.6)
+
+    dem = dem_for(sheet_id, sheet, W, H).astype(np.float64)
+    lat0, lon0 = sheet["lat"], sheet["lon"]
+    mpp = 156543.03392 * math.cos(math.radians(lat0)) / 2 ** sheet["zoom"]
+    water1 = water_mask(dem)
+    soft = nd.gaussian_filter(dem, 1.2)
+    z = nd.zoom(soft, S, order=3)
+    m = mpp / S
+    Hs, Ws = z.shape
+
+    n = normals(z, m, 1.7)
+    flat = math.sin(math.radians(alt))
+    key = lambert(n, draw_az, alt) / max(flat, 0.2)
+    if src != "none":
+        shadow = nd.zoom(cast_shadow(soft * 1.7, mpp, draw_az, alt), S, order=1)
+        key = key * (1 - 0.8 * shadow)
+    sky = (lambert(n, 315, 45) + lambert(n, 270, 55) + lambert(n, 0, 55)) / 3 / math.sin(math.radians(45))
+    k = mix(sky, key, 0.7 * power) if src != "none" else sky
+
+    e = (z - z.min()) / max(z.max() - z.min(), 1)
+    stops = [0, 0.3, 0.65, 1]
+    tint = np.stack([np.interp(e, stops, [pal[c][i] for c in ("low", "mid", "high", "top")]) for i in range(3)], -1)
+    darken = np.clip(1 - k, 0, 1)[..., None] * (0.62 if day > 0.5 else 0.8)
+    col = mix(tint, tint * sh_c * 1.25, darken)
+    bright = np.clip((k - 1) / 0.7, 0, 1)[..., None] * (0.45 * day + 0.5 * (1 - day) * power)
+    col = mix(col, lit_c, bright)
+    if day < 1:  # at night only the moon lifts the land out of the dark
+        moonlit = np.clip(k, 0, 1.6)[..., None] / 1.6 * (1 - day) * (0.22 * power if src == "moon" else 0.06)
+        col = mix(col, lit_c, moonlit)
+
+    # water, with the engraver's water lines along the shore
+    wmask = nd.gaussian_filter(nd.zoom(water1.astype(np.float64), S, order=0), S * 0.8) > 0.5
+    if wmask.any():
+        dist = nd.distance_transform_edt(wmask)
+        wl = np.zeros_like(dist)
+        for i, d0 in enumerate([2.5, 7, 13, 21, 31, 44]):
+            wl = np.maximum(wl, np.clip(1.1 - np.abs(dist - d0 * S / 2 * 1.6) / (0.9 * S / 2 * 1.4), 0, 1) * (0.85 - i * 0.12))
+        shore = np.clip(1.6 - dist / (S * 0.8), 0, 1)
+        wcol = mix(pal["water"], pal["waterline"], np.maximum(wl, shore)[..., None] * 0.85)
+        col = np.where(wmask[..., None], wcol, col)
+
+    # contours
+    zc = nd.gaussian_filter(z, 3.2)
+    land = (~wmask)[..., None]
+    c1 = contour(zc, sheet.get("contour", 50), 1.05 * S)[..., None] * land
+    c2 = contour(zc, sheet.get("index", 250), 2.3 * S)[..., None] * land
+    col = mix(col, pal["contour"], c1 * (0.42 if day > 0.5 else 0.55))
+    col = mix(col, pal["contour"], c2 * (0.78 if day > 0.5 else 0.85))
+
+    img = Image.fromarray((np.clip(col, 0, 1) * 255).astype(np.uint8))
+    d = ImageDraw.Draw(img)
+    C = lambda c: tuple(int(v * 255) for v in pal[c])
+    ink, ink2, over, paper = C("ink"), C("ink2"), C("over"), C("paper")
+    wlabel = tuple(int(v * 255) for v in mix(pal["waterline"], pal["ink"], 0.25))
+    cx, cy = merc(lat0, lon0, sheet["zoom"])
+    x0, y0 = cx - W / 2, cy - H / 2
+    to_px = lambda la, lo: ((merc(la, lo, sheet["zoom"])[0] - x0) * S, (merc(la, lo, sheet["zoom"])[1] - y0) * S)
+    to_ll = lambda px, py: unmerc(px / S + x0, py / S + y0, sheet["zoom"])
+
+    # frame: paper margin, a minute band between two rules, coordinates in the margin
+    M, B = 22 * S, 7 * S
+    L, T, R, Bt = (rail * S + M), M, Ws - M, Hs - M
+    d.rectangle([0, 0, Ws, T - 1], fill=paper); d.rectangle([0, Bt + 1, Ws, Hs], fill=paper)
+    d.rectangle([0, 0, L - 1, Hs], fill=paper); d.rectangle([R + 1, 0, Ws, Hs], fill=paper)
+    (lat_top, lon_left), (lat_bot, lon_right) = to_ll(L + B, T + B), to_ll(R - B, Bt - B)
+    f_coord = font("IBMPlexMono-Regular", 10 * S)
+
+    def minute_band(axis):
+        if axis == "lon":
+            a, b = math.floor(lon_left * 60), math.ceil(lon_right * 60)
+            for i in range(a, b + 1):
+                xa, xb = to_px(lat0, i / 60)[0], to_px(lat0, (i + 1) / 60)[0]
+                xa, xb = max(xa, L), min(xb, R)
+                if xa < xb and i % 2 == 0:
+                    d.rectangle([xa, T, xb, T + B], fill=ink); d.rectangle([xa, Bt - B, xb, Bt], fill=ink)
+                if i % 5 == 0 and L + 40 * S < to_px(lat0, i / 60)[0] < R - 40 * S:
+                    px = to_px(lat0, i / 60)[0]
+                    text(d, (px, T - 7 * S), dms(i / 60, False), f_coord, ink2, anchor="c")
+                    text(d, (px, Hs - 7 * S), dms(i / 60, False), f_coord, ink2, anchor="c")
+        else:
+            a, b = math.floor(lat_bot * 60), math.ceil(lat_top * 60)
+            for i in range(a, b + 1):
+                ya, yb = to_px((i + 1) / 60, lon0)[1], to_px(i / 60, lon0)[1]
+                ya, yb = max(ya, T), min(yb, Bt)
+                if ya < yb and i % 2 == 0:
+                    d.rectangle([L, ya, L + B, yb], fill=ink); d.rectangle([R - B, ya, R, yb], fill=ink)
+                if i % 5 == 0 and T + 40 * S < to_px(i / 60, lon0)[1] < Bt - 40 * S:
+                    py = to_px(i / 60, lon0)[1]
+                    lab = Image.new("RGBA", (90 * S, 16 * S), (0, 0, 0, 0))
+                    ld = ImageDraw.Draw(lab)
+                    text(ld, (45 * S, 12 * S), dms(i / 60, True), f_coord, ink2 + (255,), anchor="c")
+                    lab = lab.rotate(-90, expand=True)
+                    img.paste(lab, (int(Ws - M + 3 * S), int(py - 45 * S)), lab)
+    minute_band("lon"); minute_band("lat")
+    d.rectangle([L, T, R, Bt], outline=ink, width=int(1.6 * S))
+    d.rectangle([L + B, T + B, R - B, Bt - B], outline=ink, width=int(0.8 * S))
+
+    # graticule crosses every 5 minutes
+    for i in range(math.ceil(lat_bot * 12), math.floor(lat_top * 12) + 1):
+        for j in range(math.ceil(lon_left * 12), math.floor(lon_right * 12) + 1):
+            px, py = to_px(i / 12, j / 12)
+            if L + 30 * S < px < R - 30 * S and T + 30 * S < py < Bt - 30 * S:
+                a = 7 * S
+                d.line([px - a, py, px + a, py], fill=ink2, width=S); d.line([px, py - a, px, py + a], fill=ink2, width=S)
+
+    # labels
+    f_peak = font("IBMPlexSans-Medium", 13 * S)
+    f_h = font("IBMPlexMono-Regular", 11 * S)
+    f_place = font("IBMPlexSans-SemiBold", 10 * S)
+    f_water = font("IBMPlexSerif-Italic", 15 * S)
+    hal = (tuple(int(v * 255) for v in mix(pal["paper"], pal["top"], 0.5)), 3 * S)
+    for lab in sheet.get("label", []):
+        px, py = to_px(lab["lat"], lab["lon"])
+        if not (L + 40 * S < px < R - 40 * S and T + 30 * S < py < Bt - 30 * S):
+            continue
+        if lab["kind"] == "peak":
+            r = 20 * S
+            yy, xx = int(py), int(px)
+            win = z[max(0, yy - r):yy + r, max(0, xx - r):xx + r]
+            iy, ix = np.unravel_index(np.argmax(win), win.shape)
+            px, py, h = max(0, xx - r) + ix, max(0, yy - r) + iy, lab.get("ele", win.max())
+            a = 5 * S
+            d.polygon([(px, py - a), (px - a * 0.95, py + a * 0.65), (px + a * 0.95, py + a * 0.65)], fill=over)
+            text(d, (px + 10 * S, py - 2 * S), lab["name"], f_peak, ink, track=0.02, halo=hal)
+            text(d, (px + 10 * S, py + 12 * S), f"{h:.0f}", f_h, ink2, halo=hal)
+        elif lab["kind"] == "water":
+            text(d, (px, py), lab["name"], f_water, wlabel, track=0.18, anchor="c", halo=(C("water"), 3 * S))
+        else:
+            r = 3 * S
+            d.ellipse([px - r, py - r, px + r, py + r], fill=ink)
+            text(d, (px + 8 * S, py + 4 * S), lab["name"].upper(), f_place, ink, track=0.12, halo=hal)
+
+    # title block
+    bw, bh = 340 * S, 186 * S
+    bx, by = R - B - 22 * S - bw, Bt - B - 22 * S - bh
+    box = tuple(int(v * 255) for v in pal["box"])
+    d.rectangle([bx, by, bx + bw, by + bh], fill=box, outline=ink, width=int(1.4 * S))
+    d.rectangle([bx + 4 * S, by + 4 * S, bx + bw - 4 * S, by + bh - 4 * S], outline=ink, width=int(0.6 * S))
+    p = bx + 20 * S
+    f_title = font("IBMPlexSans-SemiBold", 21 * S)
+    f_sub = font("IBMPlexSans-Regular", 12 * S)
+    f_small = font("IBMPlexSans-Medium", 10 * S)
+    f_mono = font("IBMPlexMono-Regular", 10 * S)
+    text(d, (p, by + 38 * S), sheet["name"], f_title, ink, track=0.14)
+    text(d, (p, by + 60 * S), f"{sheet['region']}  ·  {dms(lat0, True)} K  {dms(lon0, False)} D", f_sub, ink2)
+    # scale bar, in honest kilometres for this screen
+    diag_mm = home[2] * 25.4
+    px_mm = diag_mm / math.hypot(W, H)
+    scale = mpp * 1000 / px_mm
+    scale_txt = f"1 : {round(scale, -3):,.0f}".replace(",", " ")
+    km = 5
+    seg = 1000 / mpp * S
+    sy0 = by + 82 * S
+    for i in range(km):
+        d.rectangle([p + i * seg, sy0, p + (i + 1) * seg, sy0 + 4 * S], fill=ink if i % 2 == 0 else box, outline=ink, width=S)
+    for i in (0, km):
+        text(d, (p + i * seg, sy0 + 17 * S), f"{i}", f_mono, ink2, anchor="c")
+    text(d, (p + km * seg + 10 * S, sy0 + 17 * S), "km", f_mono, ink2)
+    text(d, (bx + bw - 20 * S, sy0 + 6 * S), scale_txt, f_mono, ink, anchor="r")
+    text(d, (p, by + 126 * S), f"EŞ YÜKSELTİ ARALIĞI {sheet.get('contour', 50)} M", f_small, ink2, track=0.12)
+    d.line([p, by + 139 * S, bx + bw - 20 * S, by + 139 * S], fill=ink2, width=S)
+    if src == "moon" or (day < 0.5 and m_alt > 0):
+        sky_txt = f"AY  {m_az:.0f}°  {m_alt:.0f}°  ·  %{m_lit * 100:.0f}"
+    elif s_alt > -0.833:
+        _, sset = sun_times(when.date(), home[0], home[1], tz)
+        sky_txt = f"GÜNEŞ  {s_az:.0f}°  {s_alt:.0f}°" + (f"  ·  BATIŞ {sset:%H:%M}" if sset else "")
+    else:
+        rise, _ = sun_times(when.date() + dt.timedelta(days=1 if when.hour >= 12 else 0), home[0], home[1], tz)
+        sky_txt = "GECE" + (f"  ·  DOĞUŞ {rise:%H:%M}" if rise else "")
+    text(d, (p, by + 159 * S), sky_txt, f_small, ink, track=0.12)
+    text(d, (p, by + 174 * S), f"BASKI  {when.day} {MONTHS[when.month - 1]} {when.year}  {when:%H:%M}", f_small, ink2, track=0.12)
+    # north arrow above the box
+    ax, ay = bx + bw - 16 * S, by - 22 * S
+    d.polygon([(ax, ay - 34 * S), (ax - 7 * S, ay), (ax, ay - 7 * S)], fill=ink)
+    d.polygon([(ax, ay - 34 * S), (ax + 7 * S, ay), (ax, ay - 7 * S)], outline=ink, fill=box, width=S)
+    text(d, (ax, ay - 40 * S), "K", f_place, ink, anchor="c")
+
+    img = img.resize((W, H), Image.LANCZOS)
+    img.save(out, quality=94) if str(out).endswith(".jpg") else img.save(out)
+    return dict(src=src, sun=(round(s_az), round(s_alt, 1)), moon=(round(m_az), round(m_alt, 1), round(m_lit, 2)), day=round(day, 2))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--sheet")
+    ap.add_argument("--at", help="local time to print for, e.g. 2026-11-03T17:05")
+    ap.add_argument("--out", default="-")
+    ap.add_argument("--size")
+    ap.add_argument("--rail", type=int)
+    a = ap.parse_args()
+    cfg = tomllib.loads(CONFIG.read_text()) if CONFIG.exists() else {}
+    home = (cfg.get("lat", 41.01), cfg.get("lon", 28.98), cfg.get("screen_inches", 15.6))
+    tz = dt.datetime.now().astimezone().tzinfo
+    when = dt.datetime.fromisoformat(a.at).replace(tzinfo=tz) if a.at else dt.datetime.now(tz)
+    W, H = map(int, (a.size or cfg.get("size", "1920x1080")).split("x"))
+    sheet = a.sheet or cfg.get("sheet", "agri")
+    out = a.out if a.out != "-" else str(CACHE / f"print-{when:%H%M}.jpg")
+    info = render(sheet, when, out, W, H, a.rail if a.rail is not None else cfg.get("rail", 48), home)
+    print(out, info, file=sys.stderr)
+    print(out)
+
+
+if __name__ == "__main__":
+    main()
