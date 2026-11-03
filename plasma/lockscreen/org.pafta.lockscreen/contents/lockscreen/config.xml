@@ -51,6 +51,18 @@
       <label>true at night</label>
       <default>false</default>
     </entry>
+    <entry name="paftaSegPx" type="String">
+      <label>Scale bar segment in pixels</label>
+      <default></default>
+    </entry>
+    <entry name="paftaBarKm" type="String">
+      <label>Scale bar length in km</label>
+      <default></default>
+    </entry>
+    <entry name="paftaNote" type="String">
+      <label>Legend note line</label>
+      <default></default>
+    </entry>
   </group>
 
 </kcfg>

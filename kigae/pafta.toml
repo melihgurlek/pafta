@@ -27,6 +27,15 @@ layout = "./pafta/plasma/layout.js"
 "org.kde.kdecoration2/ButtonsOnRight" = "IAX"
 "Plugins/blurEnabled" = false
 
+# the lock screen: Pafta's legend box over the even-margin print (pafta-sun writes both)
+[kconfig.plasmashellrc]
+"Shell/ShellPackage" = "org.pafta.lockscreen"
+
+[kconfig.kscreenlockerrc]
+"Greeter/WallpaperPlugin" = "org.kde.image"
+"Greeter/Wallpaper/org.kde.image/General/Image" = "file:///home/melih/.cache/pafta/lock.jpg"
+"Greeter/Wallpaper/org.kde.image/General/PreviewImage" = "file:///home/melih/.cache/pafta/lock.jpg"
+
 [kconfig.konsolerc]
 "Desktop Entry/DefaultProfile" = "Pafta.profile"
 
@@ -95,3 +104,8 @@ after = ["~/.local/bin/pafta-sun"]
 "./pafta/home/.config/pafta" = ".config/pafta"
 "./pafta/home/.config/systemd/user/pafta-sun.service" = ".config/systemd/user/pafta-sun.service"
 "./pafta/home/.config/systemd/user/pafta-sun.timer" = ".config/systemd/user/pafta-sun.timer"
+"./pafta/home/.config/systemd/user/plasma-plasmashell.service.d/pafta-lockscreen.conf" = ".config/systemd/user/plasma-plasmashell.service.d/pafta-lockscreen.conf"
+"./pafta/plasma/lockscreen/org.pafta.lockscreen" = ".local/share/plasma/shells/org.pafta.lockscreen"
+
+[deep]
+sddm = "pafta"

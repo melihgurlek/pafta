@@ -39,6 +39,16 @@ out="$cache/print-$(date +%s).jpg"
 mv "$cache/state.json.new" "$cache/state.json"
 mv "$cache/inset.png.new" "$cache/inset.png"
 mv "$cache/lock-new.jpg" "$cache/lock.jpg"   # even margins, for the lock screen
+
+# the lock screen's legend box reads the sheet from kscreenlockerrc (the greeter can't read files)
+lock() { kwriteconfig6 --file kscreenlockerrc --group Greeter --group LnF --group General --key "$1" "$2"; }
+st=$cache/state.json
+for pair in paftaName:.name paftaRegion:.region paftaCoords:.coords paftaScale:.scale \
+            paftaPxPerKm:.px_per_km paftaSegPx:.seg_px paftaBarKm:.bar_km paftaNote:.note paftaContour:.contour; do
+    lock "${pair%%:*}" "$(jq -r "${pair#*:}" "$st")"
+done
+lock paftaSky "$(jq -r 'if .sun.alt > -1 then "GÜNEŞ  \(.sun.az)°  \(.sun.alt)°  ·  BATIŞ \(.sun.set)" elif .moon.alt > 0 then "AY  \(.moon.az)°  \(.moon.alt)°  ·  %\(.moon.lit)" else "GECE  ·  DOĞUŞ \(.sun.rise)" end' "$st")"
+lock paftaNight "$(jq -r 'if .day < 0.5 then "true" else "false" end' "$st")"
 # Plasma only crossfades to a new file name; keep the one on screen until the new one is up
 plasma-apply-wallpaperimage "$out" >/dev/null
 find "$cache" -maxdepth 1 -name 'print-*.jpg' ! -name "${out##*/}" -mmin +1 -delete
