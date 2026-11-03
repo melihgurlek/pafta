@@ -6,6 +6,8 @@ lon = 44.33
 zoom = 12
 contour = 50        # metres between contour lines
 index = 250         # every index line is drawn heavier
+inset = [39.676, 44.352]  # the terminal inset: both cones
+inset_span = 600
 
 [[label]]
 kind = "peak"

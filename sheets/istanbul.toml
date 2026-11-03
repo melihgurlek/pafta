@@ -1,60 +1,121 @@
-# İstanbul: the Bosphorus from the Black Sea to the Marmara, the Golden Horn, the hills of both shores.
-name = "İSTANBUL BOĞAZI"
-region = "İstanbul"
-lat = 41.075
-lon = 29.06
-zoom = 12
-contour = 25
-index = 100
-relief = 2.2       # and the shading
-inset = [41.07, 29.03] # the terminal inset: the strait, not the hill
-smooth = 7         # the city makes the elevation model noisy: generalise the contours more
-
-[[label]]
-kind = "water"
-name = "M A R M A R A"
-lat = 40.952
-lon = 28.93
-
-[[label]]
-kind = "water"
-name = "Haliç"
-lat = 41.035
-lon = 28.955
+# İstanbul: the meeting of three waters, the Bosphorus, the Golden Horn and the Marmara, drawn
+# as a nautical chart. A strait, not a mountain: the land is quiet paper (the built-up city, its
+# parks) and the water is the subject (depths from EMODnet, ferries, lights, a compass rose).
+name = "İSTANBUL"
+region = "Boğaziçi · Haliç · Marmara"
+lat = 41.006
+lon = 29.0
+zoom = 13
+style = "chart"
+relief = 3.0
+inset = [41.012, 29.0]    # the terminal inset: where the three waters meet
+inset_span = 900
+rose = [40.962, 28.905]    # in the open Marmara
 
 [[label]]
 kind = "water"
 name = "İstanbul Boğazı"
-lat = 41.085
-lon = 29.058
+lat = 41.052
+lon = 29.030
 
 [[label]]
-kind = "peak"
-name = "Çamlıca"
-ele = 268
-lat = 41.0275
-lon = 29.0700
+kind = "water"
+name = "Haliç"
+lat = 41.034
+lon = 28.952
 
 [[label]]
-kind = "place"
-name = "Beşiktaş"
-lat = 41.0430
-lon = 29.0050
+kind = "water"
+name = "M A R M A R A"
+lat = 40.950
+lon = 29.000
 
 [[label]]
-kind = "place"
-name = "Kadıköy"
-lat = 40.9900
+kind = "light"
+name = "Kız Kulesi"
+lat = 41.0211
+lon = 29.0041
+
+[[label]]
+kind = "light"
+name = "Ahırkapı Feneri"
+lat = 41.0058
+lon = 28.9806
+
+[[label]]
+kind = "light"
+name = "Fenerbahçe Feneri"
+lat = 40.9690
+lon = 29.0390
+
+[[label]]
+kind = "landmark"
+name = "Galata Kulesi"
+lat = 41.0256
+lon = 28.9742
+
+[[label]]
+kind = "landmark"
+name = "Ayasofya"
+lat = 41.0086
+lon = 28.9802
+
+[[label]]
+kind = "landmark"
+name = "Süleymaniye"
+lat = 41.0162
+lon = 28.9640
+
+[[label]]
+kind = "landmark"
+name = "Çamlıca Kulesi"
+lat = 41.0277
+lon = 29.0675
+
+[[label]]
+kind = "district"
+name = "EMİNÖNÜ"
+lat = 41.0185
+lon = 28.9705
+
+[[label]]
+kind = "district"
+name = "KARAKÖY"
+lat = 41.0235
+lon = 28.9775
+
+[[label]]
+kind = "district"
+name = "BEŞİKTAŞ"
+lat = 41.0425
+lon = 29.0045
+
+[[label]]
+kind = "district"
+name = "ÜSKÜDAR"
+lat = 41.0265
+lon = 29.0155
+
+[[label]]
+kind = "district"
+name = "KADIKÖY"
+lat = 40.9905
+lon = 29.0265
+
+[[label]]
+kind = "district"
+name = "MODA"
+lat = 40.9810
 lon = 29.0270
 
 [[label]]
-kind = "place"
-name = "Üsküdar"
-lat = 41.0230
-lon = 29.0150
+kind = "district"
+name = "YENİKAPI"
+lat = 41.0035
+lon = 28.9510
 
 [[label]]
-kind = "place"
-name = "Sarıyer"
-lat = 41.1670
-lon = 29.0570
+kind = "district"
+name = "HAYDARPAŞA"
+lat = 40.9970
+lon = 29.0190
