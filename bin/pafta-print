@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy", "scipy", "pillow", "mapbox-vector-tile"]
+# dependencies = ["numpy", "scipy", "pillow", "mapbox-vector-tile", "tifffile"]
 # ///
 """Print one edition of a Pafta map sheet: real terrain, lit by where the sun (or the moon)
 is over you right now.
@@ -179,7 +179,7 @@ def osm_for(sheet_id, sheet, W, H):
     """Roads, rail, ferries, woods and exact water from OpenFreeMap's vector tiles (OpenMapTiles
     schema), as polylines and polygons in the 2x raster's pixels. Tiles one zoom above the sheet
     line up with the 2x raster 1:1. Cached per sheet in ~/.cache/pafta/osm."""
-    path = CACHE / "osm" / f"{sheet_id}-{W}x{H}-z{sheet['zoom']}.json"
+    path = CACHE / "osm" / f"{sheet_id}-{W}x{H}-z{sheet['zoom']}-{sheet['lat']}-{sheet['lon']}-v2.json"
     if path.exists():
         return json.loads(path.read_text())
     import gzip
@@ -189,7 +189,7 @@ def osm_for(sheet_id, sheet, W, H):
     z = sheet["zoom"] + 1
     cx, cy = merc(sheet["lat"], sheet["lon"], z)
     x0, y0 = cx - W / 2 * S, cy - H / 2 * S
-    out = {k: [] for k in ("water", "wood", "motorway", "trunk", "primary", "rail", "ferry", "bridge")}
+    out = {k: [] for k in ("water", "wood", "built", "park", "motorway", "trunk", "primary", "rail", "ferry", "bridge")}
     roads = {"motorway": "motorway", "trunk": "trunk", "primary": "primary"}
     for tx in range(int(x0 // 256), int((x0 + W * S) // 256) + 1):
         for ty in range(int(y0 // 256), int((y0 + H * S) // 256) + 1):
@@ -216,7 +216,13 @@ def osm_for(sheet_id, sheet, W, H):
                 if f["properties"].get("class") in ("wood", "forest"):
                     out["wood"] += polys(f["geometry"])
             for f in tile.get("park", {}).get("features", []):
-                out["wood"] += polys(f["geometry"]) if f["properties"].get("class") in ("nature_reserve", "national_park", "forest") else []
+                out["park"] += polys(f["geometry"])
+            for f in tile.get("landuse", {}).get("features", []):
+                cls = f["properties"].get("class")
+                if cls in ("residential", "commercial", "industrial", "retail", "neighbourhood", "suburb", "quarter"):
+                    out["built"] += polys(f["geometry"])
+                elif cls in ("cemetery", "park", "grass"):
+                    out["park"] += polys(f["geometry"])
             for f in tile.get("transportation", {}).get("features", []):
                 p = f["properties"]
                 cls, brunnel = p.get("class"), p.get("brunnel")
@@ -260,6 +266,144 @@ def dashed(d, pts, fill, width, on, off):
                 d.line([(xa + (xb - xa) * p0, ya + (yb - ya) * p0), (xa + (xb - xa) * p1, ya + (yb - ya) * p1)], fill=fill, width=width)
             t += max(run, 1e-6)
         pos += seg
+
+
+# ---------------------------------------------------------------- the chart style (İstanbul)
+EMODNET = ("https://ows.emodnet-bathymetry.eu/wcs?service=WCS&version=2.0.1&request=GetCoverage"
+           "&coverageId=emodnet__mean&subset=Lat({s},{n})&subset=Long({w},{e})&format=image/tiff")
+CHART = dict(  # day, night
+    bands=(["#B7D1E2", "#C6DBE8", "#D6E5EE", "#E4EEF2", "#EEF3F3"], ["#22394A", "#1C3141", "#172938", "#13212D", "#0F1A23"]),
+    iso=("#3E78A3", "#3B6A8A"), sounding=("#2F6690", "#6F9BBE"), built=("#E8E6DF", "#191F26"),
+    park=("#D6E2C8", "#17231C"), land=("#F1EFE8", "#12171C"),
+)
+DEPTHS = (0, 5, 10, 20, 50)
+
+
+def chart_colour(name, day, i=None):
+    a, b = CHART[name]
+    if i is not None:
+        a, b = a[i], b[i]
+    return mix(rgb(b), rgb(a), day)
+
+
+def bathy_for(sheet_id, sheet, to_ll, Ws, Hs):
+    """EMODnet's gridded depths (about 115 m cells) on the 2x raster, positive metres."""
+    import tifffile
+    (lat_t, lon_l), (lat_b, lon_r) = to_ll(0, 0), to_ll(Ws, Hs)
+    pad = 0.01
+    s_, n_, w_, e_ = lat_b - pad, lat_t + pad, lon_l - pad, lon_r + pad
+    path = CACHE / "bathy" / f"{sheet_id}-{s_:.4f}-{w_:.4f}-{n_:.4f}-{e_:.4f}.tif"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(urllib.request.urlopen(EMODNET.format(s=s_, n=n_, w=w_, e=e_), timeout=90).read())
+    B = tifffile.imread(path).astype(np.float64)
+    B[~np.isfinite(B) | (np.abs(B) > 1e5)] = 0
+    bh, bw = B.shape
+    lats = np.array([to_ll(0, y)[0] for y in range(0, Hs, 2)])
+    lons = np.array([to_ll(x, 0)[1] for x in range(0, Ws, 2)])
+    r = ((n_ - lats) / (n_ - s_) * (bh - 1))[:, None] * np.ones((1, lons.size))
+    c = ((lons - w_) / (e_ - w_) * (bw - 1))[None, :] * np.ones((lats.size, 1))
+    depth = -nd.map_coordinates(B, [r, c], order=1)
+    return nd.zoom(depth, 2, order=1)[:Hs, :Ws]
+
+
+def chart_base(sheet_id, sheet, osm, k, day, pal, to_ll, mpp, Ws, Hs):
+    """Land as quiet paper (built-up tone, parks, a faint relief), water as the subject: depth
+    bands from shallow blue to deep paper, depth contours, a shore line."""
+    def big(rings):
+        xs, ys = [p[0] for p in rings[0]], [p[1] for p in rings[0]]
+        return (max(xs) - min(xs)) * (max(ys) - min(ys)) > 2500 * S * S
+    water = raster_polys([p for p in osm["water"] if big(p)], (Ws, Hs))
+    land = np.ones((Hs, Ws, 3)) * chart_colour("land", day)
+    built = nd.gaussian_filter(raster_polys(osm["built"], (Ws, Hs)).astype(np.float64), 1.0)
+    park = nd.gaussian_filter(raster_polys(osm["park"] + osm["wood"], (Ws, Hs)).astype(np.float64), 1.0)
+    land = mix(land, chart_colour("built", day), built[..., None])
+    land = mix(land, chart_colour("park", day), park[..., None] * 0.9)
+    land = mix(land, land * rgb("#59627F") * 1.25, np.clip(1 - k, 0, 1)[..., None] * (0.22 if day > 0.5 else 0.5))
+    depth = bathy_for(sheet_id, sheet, to_ll, Ws, Hs)
+    depth = nd.gaussian_filter(np.where(water, np.clip(depth, 0.5, None), 0), 3) * water
+    wcol = np.zeros((Hs, Ws, 3))
+    for i, d0 in enumerate(DEPTHS):
+        wcol[depth >= d0] = chart_colour("bands", day, i)
+    col = np.where(water[..., None], wcol, land)
+    iso = np.zeros((Hs, Ws))
+    for d0 in DEPTHS[1:]:
+        m = depth >= d0
+        iso = np.maximum(iso, (nd.binary_dilation(m) & ~m & water) * (0.9 if d0 in (10, 50) else 0.55))
+    col = mix(col, chart_colour("iso", day), nd.gaussian_filter(iso, 0.7)[..., None] * 0.8)
+    shore = water & ~nd.binary_erosion(water, iterations=2)
+    col = mix(col, pal["ink"], shore[..., None] * 0.85)
+    return col, water, depth
+
+
+def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, rose_label):
+    """Ferries, bridges, honest soundings, lights, conspicuous objects and the compass rose."""
+    d = ImageDraw.Draw(img, "RGBA")
+    C = lambda c: tuple(int(v * 255) for v in pal[c])
+    ink, over, paper = C("ink"), C("over"), tuple(int(v * 255) for v in chart_colour("land", day))
+    snd = tuple(int(v * 255) for v in chart_colour("sounding", day))
+    Hs, Ws = water.shape
+    for line in osm["ferry"]:
+        dashed(d, line, tuple(int(v * 255) for v in chart_colour("iso", day)) + (190,), 2, 9, 9)
+    for line in osm["bridge"]:
+        x, y = line[len(line) // 2]
+        if 0 <= int(y) < Hs and 0 <= int(x) < Ws and water[int(y), int(x)]:
+            d.line(line, fill=ink, width=7, joint="curve")
+            d.line(line, fill=paper, width=3, joint="curve")
+    rose = sheet.get("rose")
+    rx, ry = to_px(*rose) if rose else (-1e9, -1e9)
+    R = 105 * S
+    # soundings only in open water, 650 m from any shore: in the narrows EMODnet's 115 m cells
+    # average the channel into its banks and would print depths far too shallow
+    far = nd.distance_transform_edt(water) * (mpp / S) > 650
+    f_snd = font("IBMPlexSans-Regular", 10 * S)
+    rng = np.random.default_rng(7)
+    cand = np.argwhere(far[::12, ::12]) * 12
+    rng.shuffle(cand)
+    placed = []
+    for yy, xx in cand:
+        if (yy - ry) ** 2 + (xx - rx) ** 2 < (R + 40 * S) ** 2:
+            continue
+        if any((yy - a) ** 2 + (xx - b) ** 2 < (46 * S) ** 2 for a, b in placed):
+            continue
+        if depth[yy, xx] < 2:
+            continue
+        placed.append((yy, xx))
+        text(d, (xx, yy), f"{depth[yy, xx]:.0f}", f_snd, snd, anchor="c")
+    f_lab, f_small = font("IBMPlexSans-Medium", 11 * S), font("IBMPlexSans-Medium", 9 * S)
+    for lab in sheet.get("label", []):
+        x, y = to_px(lab["lat"], lab["lon"])
+        if lab["kind"] == "light":  # the magenta flare: lights on a chart
+            a = math.radians(-35)
+            tip = (x + math.sin(a) * 26 * S, y - math.cos(a) * 26 * S)
+            d.polygon([(x, y), (tip[0] - 5 * S, tip[1] + 2 * S), tip, (tip[0] + 2 * S, tip[1] + 5 * S)], fill=over)
+            d.ellipse([x - 3 * S, y - 3 * S, x + 3 * S, y + 3 * S], fill=ink)
+            text(d, (x + 9 * S, y + 14 * S), lab["name"], f_lab, ink, halo=(paper, 3 * S))
+        elif lab["kind"] == "landmark":  # a conspicuous object
+            d.ellipse([x - 4 * S, y - 4 * S, x + 4 * S, y + 4 * S], outline=ink, width=S)
+            d.ellipse([x - S, y - S, x + S, y + S], fill=ink)
+            text(d, (x + 8 * S, y + 4 * S), lab["name"], f_small, ink, track=0.05, halo=(paper, 3 * S))
+    if rose:  # the compass rose, with the sun (or moon) on its ring
+        deep = tuple(int(v * 255) for v in chart_colour("bands", day, 4))
+        d.ellipse([rx - R, ry - R, rx + R, ry + R], outline=ink, width=S)
+        d.ellipse([rx - R + 14 * S, ry - R + 14 * S, rx + R - 14 * S, ry + R - 14 * S], outline=ink, width=S)
+        for deg in range(0, 360, 5):
+            a = math.radians(deg)
+            L = 14 * S if deg % 30 == 0 else (8 * S if deg % 10 == 0 else 5 * S)
+            d.line([(rx + math.sin(a) * R, ry - math.cos(a) * R), (rx + math.sin(a) * (R - L), ry - math.cos(a) * (R - L))], fill=ink, width=S)
+            if deg % 30 == 0:
+                text(d, (rx + math.sin(a) * (R + 13 * S), ry - math.cos(a) * (R + 13 * S) + 4 * S), f"{deg:03d}", f_small, ink, anchor="c")
+        for deg, ln in ((0, 0.78), (90, 0.55), (180, 0.55), (270, 0.55), (45, 0.32), (135, 0.32), (225, 0.32), (315, 0.32)):
+            a = math.radians(deg)
+            tp = (rx + math.sin(a) * R * ln, ry - math.cos(a) * R * ln)
+            l_ = (rx + math.sin(a - math.pi / 2) * 7 * S, ry - math.cos(a - math.pi / 2) * 7 * S)
+            r_ = (rx + math.sin(a + math.pi / 2) * 7 * S, ry - math.cos(a + math.pi / 2) * 7 * S)
+            d.polygon([(rx, ry), l_, tp], fill=ink)
+            d.polygon([(rx, ry), r_, tp], outline=ink, fill=deep)
+        if rose_az is not None:
+            a = math.radians(rose_az)
+            d.line([(rx + math.sin(a) * (R - 14 * S), ry - math.cos(a) * (R - 14 * S)), (rx + math.sin(a) * (R + 3 * S), ry - math.cos(a) * (R + 3 * S))], fill=over, width=3 * S)
+            text(d, (rx, ry + R + 32 * S), rose_label, f_small, over, track=0.14, anchor="c", halo=(deep, 3 * S))
 
 
 def normals(z, m, ve):
@@ -414,8 +558,25 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
     col = mix(col, pal["contour"], c1 * (0.42 if day > 0.5 else 0.55) * cs)
     col = mix(col, pal["contour"], c2 * (0.78 if day > 0.5 else 0.85) * cs)
 
+    chart = sheet.get("style") == "chart"
+    gx, gy = merc(lat0, lon0, sheet["zoom"])
+    _px = lambda la, lo: ((merc(la, lo, sheet["zoom"])[0] - gx + W / 2) * S, (merc(la, lo, sheet["zoom"])[1] - gy + H / 2) * S)
+    _ll = lambda px, py: unmerc(px / S + gx - W / 2, py / S + gy - H / 2, sheet["zoom"])
+    if chart:  # İstanbul is a strait, not a mountain: draw it the way sailors do
+        osm = osm or osm_for(sheet_id, sheet, W, H)
+        col, wmask, depth = chart_base(sheet_id, sheet, osm, k, day, pal, _ll, mpp, Ws, Hs)
+        pal["water"] = chart_colour("bands", day, 2)
+
     base = Image.fromarray((np.clip(col, 0, 1) * 255).astype(np.uint8))
-    if osm:  # the road, rail and ferry plates, drawn once for every output
+    if chart:
+        if s_alt > -1:
+            rose_az, rose_label = s_az, f"GÜNEŞ {s_az:.0f}°"
+        elif m_alt > 0:
+            rose_az, rose_label = m_az, f"AY {m_az:.0f}°"
+        else:
+            rose_az, rose_label = None, ""
+        chart_marks(base, sheet, osm, wmask, depth, day, pal, _px, mpp, rose_az, rose_label)
+    elif osm:  # the road, rail and ferry plates, drawn once for every output
         C0 = lambda c, a=255: tuple(int(v * 255) for v in pal[c]) + (a,)
         lay = Image.new("RGBA", base.size, (0, 0, 0, 0))
         d0 = ImageDraw.Draw(lay)
@@ -494,7 +655,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                         img.paste(lab, (int(Ws - M + 3 * S), int(py - 45 * S)), lab)
         minute_band("lon"); minute_band("lat")
         if osm:  # ODbL: the map credits its data
-            text(d, (L, Hs - 7 * S), "© OpenStreetMap katkıcıları", f_coord, ink2)
+            text(d, (R, Hs - 7 * S), "© OpenStreetMap" + (" · EMODnet" if chart else " katkıcıları"), f_coord, ink2, anchor="r")
         d.rectangle([L, T, R, Bt], outline=ink, width=int(1.6 * S))
         d.rectangle([L + B, T + B, R - B, Bt - B], outline=ink, width=int(0.8 * S))
 
@@ -528,12 +689,18 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                 text(d, (px + 10 * S, py + 12 * S), f"{h:.0f}", f_h, ink2, halo=hal)
             elif lab["kind"] == "water":
                 text(d, (px, py), lab["name"], f_water, wlabel, track=0.18, anchor="c", halo=(C("water"), 3 * S))
+            elif lab["kind"] in ("light", "landmark"):
+                continue  # drawn with the chart
+            elif lab["kind"] == "district":
+                text(d, (px, py), lab["name"].upper(), f_place, ink, track=0.14, anchor="c", halo=hal)
             else:
                 r = 3 * S
                 d.ellipse([px - r, py - r, px + r, py + r], fill=ink)
                 text(d, (px + 8 * S, py + 4 * S), lab["name"].upper(), f_place, ink, track=0.12, halo=hal)
 
         # what the title block says (also handed to the desktop legend widget as state.json)
+        bar_km = next(b for b in (10, 5, 2, 1, 0.5) if b * 1000 / mpp <= 180)  # the bar fits the box
+        note = "DERİNLİKLER METRE · EMODNET" if chart else f"EŞ YÜKSELTİ ARALIĞI {sheet.get('contour', 50)} M"
         diag_mm = home[2] * 25.4
         scale = mpp * 1000 / (diag_mm / math.hypot(W, H))
         scale_txt = f"1 : {round(scale, -3):,.0f}".replace(",", " ")
@@ -543,6 +710,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
         state = dict(sheet=sheet_id, name=sheet["name"], region=sheet["region"],
                      coords=f"{dms(lat0, True)} K  {dms(lon0, False)} D", scale=scale_txt,
                      px_per_km=round(1000 / mpp, 2), contour=sheet.get("contour", 50),
+                     bar_km=bar_km, seg_px=round(bar_km * 1000 / mpp / 5, 2), note=note,
                      sun=dict(az=round(s_az), alt=round(s_alt), rise=f"{rise:%H:%M}" if rise else "",
                               set=f"{sset:%H:%M}" if sset else ""),
                      moon=dict(az=round(m_az), alt=round(m_alt), lit=round(m_lit * 100)),
@@ -562,16 +730,15 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
             text(d, (p, by + 38 * S), sheet["name"], f_title, ink, track=0.14)
             text(d, (p, by + 60 * S), f"{sheet['region']}  ·  {dms(lat0, True)} K  {dms(lon0, False)} D", f_sub, ink2)
             # scale bar, in honest kilometres for this screen
-            km = 5
-            seg = 1000 / mpp * S
+            seg = bar_km * 1000 / mpp / 5 * S
             sy0 = by + 82 * S
-            for i in range(km):
+            for i in range(5):
                 d.rectangle([p + i * seg, sy0, p + (i + 1) * seg, sy0 + 4 * S], fill=ink if i % 2 == 0 else box, outline=ink, width=S)
-            for i in (0, km):
-                text(d, (p + i * seg, sy0 + 17 * S), f"{i}", f_mono, ink2, anchor="c")
-            text(d, (p + km * seg + 10 * S, sy0 + 17 * S), "km", f_mono, ink2)
+            text(d, (p, sy0 + 17 * S), "0", f_mono, ink2, anchor="c")
+            text(d, (p + 5 * seg, sy0 + 17 * S), f"{bar_km:g}", f_mono, ink2, anchor="c")
+            text(d, (p + 5 * seg + 10 * S, sy0 + 17 * S), "km", f_mono, ink2)
             text(d, (bx + bw - 20 * S, sy0 + 6 * S), scale_txt, f_mono, ink, anchor="r")
-            text(d, (p, by + 126 * S), f"EŞ YÜKSELTİ ARALIĞI {sheet.get('contour', 50)} M", f_small, ink2, track=0.12)
+            text(d, (p, by + 126 * S), note, f_small, ink2, track=0.12)
             d.line([p, by + 139 * S, bx + bw - 20 * S, by + 139 * S], fill=ink2, width=S)
             if src == "moon" or (day < 0.5 and m_alt > 0):
                 sky_txt = f"AY  {m_az:.0f}°  {m_alt:.0f}°  ·  %{m_lit * 100:.0f}"
@@ -590,18 +757,29 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
             text(d, (ax, ay - 40 * S), "K", f_place, ink, anchor="c")
 
         img = img.resize((W, H), Image.LANCZOS)
-        if inset:  # a square inset around the sheet's main feature, for the terminal (fastfetch)
+        if inset:  # the terminal's inset map (fastfetch): the whole feature, unlabelled, framed
             peaks = [l for l in sheet.get("label", []) if l["kind"] == "peak"]
             la, lo = sheet.get("inset", [peaks[0]["lat"], peaks[0]["lon"]] if peaks else [lat0, lon0])
-            ix, iy = to_px(la, lo)
-            n = 420
-            x0i = int(min(max(ix / S - n / 2, rail + 30), W - 30 - n))
-            y0i = int(min(max(iy / S - n / 2, 30), H - 30 - n))
-            ins = img.crop((x0i, y0i, x0i + n, y0i + n))
-            dd = ImageDraw.Draw(ins)
+            ix, iy = to_px(la, lo)  # 2x raster
+            span = int(sheet.get("inset_span", 760)) * S  # map pixels the inset covers, before scaling down
+            n, m_ = 400, 18  # inset size and its paper mat
+            x0i = int(min(max(ix - span / 2, (rail + 30) * S), Ws - 30 * S - span))
+            y0i = int(min(max(iy - span / 2, 30 * S), Hs - 30 * S - span))
+            ins = base.crop((x0i, y0i, x0i + span, y0i + span)).resize((n - 2 * m_, n - 2 * m_), Image.LANCZOS)
+            paper_c = tuple(int(v * 255) for v in pal["paper"])
+            card = Image.new("RGB", (n, n), paper_c)
+            card.paste(ins, (m_, m_))
+            dd = ImageDraw.Draw(card)
+            k_ = (n - 2 * m_) / span
+            for p_ in peaks:  # the summits, in the overprint
+                px_, py_ = to_px(p_["lat"], p_["lon"])
+                qx, qy = m_ + (px_ - x0i) * k_, m_ + (py_ - y0i) * k_
+                if m_ < qx < n - m_ and m_ < qy < n - m_:
+                    dd.polygon([(qx, qy - 6), (qx - 6, qy + 4), (qx + 6, qy + 4)], fill=over)
+            dd.rectangle([m_ - 1, m_ - 1, n - m_, n - m_], outline=ink, width=1)
             dd.rectangle([0, 0, n - 1, n - 1], outline=ink, width=2)
-            dd.rectangle([5, 5, n - 6, n - 6], outline=tuple(int(v * 255) for v in mix(pal["ink"], pal["paper"], 0.6)), width=1)
-            ins.save(inset, format="PNG")
+            dd.rectangle([5, 5, n - 6, n - 6], outline=tuple(int(v * 255) for v in mix(pal["ink"], pal["paper"], 0.55)), width=1)
+            card.save(inset, format="PNG")
         img.save(out, quality=94) if str(out).endswith(".jpg") else img.save(out)
         return state
 

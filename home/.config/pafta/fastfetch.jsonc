@@ -1,35 +1,42 @@
-// Pafta fastfetch: the logo is an inset of the sheet on the desktop, cut from the latest print
-// (pafta-sun writes ~/.cache/pafta/inset.png every 10 minutes), so it carries the same sun.
-// Colours are kitty palette indices, so it reads on paper by day and on the chart at night.
+// Pafta fastfetch: an inset map and a title block, like the corner of the sheet on the desktop.
+// The inset is cut from the latest print by pafta-sun (~/.cache/pafta/inset.png, every 10
+// minutes): the whole feature, unlabelled, under the same sun. Colours are kitty palette
+// indices, so it reads on paper by day and on the chart at night.
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
   "logo": {
     "type": "kitty-direct",
     "source": "~/.cache/pafta/inset.png",
-    "width": 32,
-    "padding": { "top": 1, "left": 2, "right": 3 }
+    "width": 34,
+    "padding": { "top": 1, "left": 2, "right": 4 }
   },
   "display": {
-    "separator": "  ",
-    "color": { "keys": "90", "title": "34", "output": "39", "separator": "90" },
+    "separator": "",
+    "brightColor": false,
+    "color": { "keys": "90", "title": "39", "output": "39", "separator": "90" },
     "key": { "width": 10 }
   },
   "modules": [
     "break",
-    { "type": "title", "format": "{#35}△ {#39}{user-name}{#90}@{#34}{host-name}" },
-    { "type": "command", "key": "─────────", "keyColor": "90",
-      "text": "jq -r .name ~/.cache/pafta/state.json 2>/dev/null || echo PAFTA" },
-    { "type": "command", "key": "sheet",
-      "text": "jq -r '.region + \"  \" + .coords' ~/.cache/pafta/state.json" },
-    { "type": "command", "key": "sky",
-      "text": "jq -r 'if .sun.alt > -1 then \"güneş \\(.sun.az)° \\(.sun.alt)°  ·  batış \\(.sun.set)\" elif .moon.alt > 0 then \"ay \\(.moon.az)° \\(.moon.alt)°  ·  %\\(.moon.lit)\" else \"gece  ·  doğuş \\(.sun.rise)\" end' ~/.cache/pafta/state.json" },
-    "break",
+    // the title block: the sheet leads
+    { "type": "command", "key": "{#35}△", "keyWidth": 3,
+      "text": "jq -r '.name' ~/.cache/pafta/state.json 2>/dev/null || echo PAFTA",
+      "format": "{#1}{1}" },
+    { "type": "command", "key": "\u00a0", "keyWidth": 3, "outputColor": "90",
+      "text": "jq -r '.region' ~/.cache/pafta/state.json" },
+    { "type": "command", "key": "\u00a0", "keyWidth": 3, "outputColor": "90",
+      "text": "jq -r '.coords + \"  ·  \" + .scale' ~/.cache/pafta/state.json" },
+    { "type": "command", "key": "\u00a0", "keyWidth": 3,
+      "text": "jq -r 'if .sun.alt > -1 then \"güneş \\(.sun.az)°  \\(.sun.alt)°  ·  batış \\(.sun.set)\" elif .moon.alt > 0 then \"ay \\(.moon.az)°  \\(.moon.alt)°  ·  %\\(.moon.lit)\" else \"gece  ·  doğuş \\(.sun.rise)\" end' ~/.cache/pafta/state.json" },
+    { "type": "custom", "key": "\u00a0", "keyWidth": 3, "format": "{#90}──────────────────────────────" },
+    // then the machine, quietly
+    { "type": "title", "key": "user", "format": "{user-name}{#90}@{#34}{host-name}" },
     { "type": "os", "key": "os", "format": "{name} {version-id}" },
-    { "type": "kernel", "key": "kernel" },
+    { "type": "command", "key": "kernel", "text": "uname -r | cut -d- -f1" },
     { "type": "de", "key": "desktop" },
     { "type": "terminal", "key": "terminal" },
-    { "type": "custom", "key": "font", "format": "IBM Plex · BlexMono" },
-    { "type": "custom", "key": "icons", "format": "Tela circle brown" },
+    { "type": "custom", "key": "type", "format": "IBM Plex · BlexMono" },
+    { "type": "custom", "key": "icons", "format": "Tela circle, contour brown" },
     { "type": "cpu", "key": "cpu", "format": "{name}" },
     { "type": "gpu", "key": "gpu", "format": "{name}", "hideType": "integrated" },
     "break",
