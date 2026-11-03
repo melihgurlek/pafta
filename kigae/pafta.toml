@@ -78,7 +78,7 @@ kconfig.kwriterc."KTextEditor Renderer/Color Theme" = "Pafta Night"
 enable = ["pafta-sun.timer"]
 
 [hooks]
-after = ["~/.local/bin/pafta-sun"]
+after = ["~/.local/bin/pafta-sun quick"]  # last print at once, a fresh one in the background
 
 [install]
 "./pafta/bin/pafta-print" = ".local/bin/pafta-print"
