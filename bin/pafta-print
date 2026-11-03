@@ -915,7 +915,6 @@ def main():
     if a.state:
         import json
         Path(a.state).write_text(json.dumps(info, ensure_ascii=False, indent=1))
-    print(info, file=sys.stderr)
     if not printed:
         sys.exit(3)
     print(out)

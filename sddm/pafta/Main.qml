@@ -1,4 +1,4 @@
-// Pafta login. The sheet under the sun of the hour (dawn, day, dusk or night print, chosen by
+// Pafta login. The sheet's paper plate by day and its night plate after dusk (chosen by
 // computing where the sun is), and in its corner the legend box of the desktop with two rows
 // more: who, and the password. Logging in folds the rows away, so the box that is left is the
 // one the desktop puts in the same place. A wrong password knocks the magenta plate out of
@@ -17,10 +17,9 @@ Rectangle {
     readonly property real lon: Number(config.lon) || 28.98
     property date now: new Date()
     readonly property real sunAlt: altitude(now)
-    // theme.conf phase=dawn|day|dusk|night pins one (previews); otherwise the sun decides
-    readonly property string phase: config.phase ? config.phase
-        : sunAlt < -6 ? "night" : sunAlt < 8 ? (now.getHours() < 12 ? "dawn" : "dusk") : "day"
-    readonly property bool night: config.phase ? config.phase === "night" : sunAlt < -2
+    // theme.conf phase=paper|night pins one (previews); otherwise the sun decides, at civil dusk
+    readonly property string phase: config.phase ? config.phase : sunAlt < -6 ? "night" : "paper"
+    readonly property bool night: phase === "night"
 
     readonly property color paper: night ? "#141A1F" : "#F3F1EA"
     readonly property color view: night ? "#0F1418" : "#FBFAF6"
