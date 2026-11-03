@@ -1,0 +1,12 @@
+[SddmGreeterTheme]
+Name=Pafta
+Description=Pafta: the map sheet under the sun of the hour, and the legend box that becomes the desktop's
+Author=Claude, for Melih
+License=GPL-3.0-or-later
+Type=sddm-theme
+Version=0.1
+MainScript=Main.qml
+ConfigFile=theme.conf
+Theme-Id=pafta
+Theme-API=2.0
+QtVersion=6
