@@ -1,0 +1,140 @@
+{
+  "metadata": {
+    "name": "Pafta Paper",
+    "revision": 1,
+    "license": "MIT",
+    "author": "Pafta rice (melihgurlek)"
+  },
+  "text-styles": {
+    "Normal": {
+      "text-color": "#24282D",
+      "selected-text-color": "#24282D"
+    },
+    "Keyword": {
+      "text-color": "#9A6A42"
+    },
+    "ControlFlow": {
+      "text-color": "#9A6A42"
+    },
+    "Function": {
+      "text-color": "#2F6690"
+    },
+    "Variable": {
+      "text-color": "#24282D"
+    },
+    "Operator": {
+      "text-color": "#5E6266"
+    },
+    "BuiltIn": {
+      "text-color": "#2F6690"
+    },
+    "Extension": {
+      "text-color": "#2F6690"
+    },
+    "Preprocessor": {
+      "text-color": "#9A6A42"
+    },
+    "Attribute": {
+      "text-color": "#2C7C82"
+    },
+    "Char": {
+      "text-color": "#4F7A3A"
+    },
+    "SpecialChar": {
+      "text-color": "#A8336F"
+    },
+    "String": {
+      "text-color": "#4F7A3A"
+    },
+    "VerbatimString": {
+      "text-color": "#4F7A3A"
+    },
+    "SpecialString": {
+      "text-color": "#A8336F"
+    },
+    "Import": {
+      "text-color": "#9A6A42"
+    },
+    "DataType": {
+      "text-color": "#A87B1F"
+    },
+    "DecVal": {
+      "text-color": "#B5452F"
+    },
+    "BaseN": {
+      "text-color": "#B5452F"
+    },
+    "Float": {
+      "text-color": "#B5452F"
+    },
+    "Constant": {
+      "text-color": "#B5452F"
+    },
+    "Comment": {
+      "text-color": "#8F918C",
+      "italic": true
+    },
+    "Documentation": {
+      "text-color": "#8F918C",
+      "italic": true
+    },
+    "Annotation": {
+      "text-color": "#2C7C82"
+    },
+    "CommentVar": {
+      "text-color": "#5E6266",
+      "italic": true
+    },
+    "RegionMarker": {
+      "text-color": "#2F6690",
+      "background-color": "#D4E3EA"
+    },
+    "Information": {
+      "text-color": "#2C7C82"
+    },
+    "Warning": {
+      "text-color": "#A87B1F"
+    },
+    "Alert": {
+      "text-color": "#B5452F",
+      "bold": true
+    },
+    "Error": {
+      "text-color": "#B5452F",
+      "underline": true
+    },
+    "Others": {
+      "text-color": "#2C7C82"
+    }
+  },
+  "editor-colors": {
+    "BackgroundColor": "#FBFAF6",
+    "BracketMatching": "#DCD8CC",
+    "CodeFolding": "#EAE7DE",
+    "CurrentLine": "#F3F1EA",
+    "CurrentLineNumber": "#24282D",
+    "IconBorder": "#FBFAF6",
+    "IndentationLine": "#C9C4B6",
+    "LineNumbers": "#8F918C",
+    "MarkBookmark": "#2F6690",
+    "MarkBreakpointActive": "#B5452F",
+    "MarkBreakpointDisabled": "#8F918C",
+    "MarkBreakpointReached": "#A87B1F",
+    "MarkError": "#B5452F",
+    "MarkExecution": "#5E6266",
+    "MarkWarning": "#A87B1F",
+    "ModifiedLines": "#A87B1F",
+    "ReplaceHighlight": "#C49A6C",
+    "SavedLines": "#4F7A3A",
+    "SearchHighlight": "#C49A6C",
+    "Separator": "#C9C4B6",
+    "SpellChecking": "#B5452F",
+    "TabMarker": "#C9C4B6",
+    "TemplateBackground": "#EAE7DE",
+    "TemplatePlaceholder": "#DCD8CC",
+    "TemplateFocusedPlaceholder": "#D4E3EA",
+    "TemplateReadOnlyPlaceholder": "#F3F1EA",
+    "TextSelection": "#D4E3EA",
+    "WordWrapMarker": "#C9C4B6"
+  }
+}

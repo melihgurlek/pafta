@@ -1,0 +1,140 @@
+{
+  "metadata": {
+    "name": "Pafta Night",
+    "revision": 1,
+    "license": "MIT",
+    "author": "Pafta rice (melihgurlek)"
+  },
+  "text-styles": {
+    "Normal": {
+      "text-color": "#C3C7C0",
+      "selected-text-color": "#C3C7C0"
+    },
+    "Keyword": {
+      "text-color": "#B08458"
+    },
+    "ControlFlow": {
+      "text-color": "#B08458"
+    },
+    "Function": {
+      "text-color": "#5B93BD"
+    },
+    "Variable": {
+      "text-color": "#C3C7C0"
+    },
+    "Operator": {
+      "text-color": "#8C9296"
+    },
+    "BuiltIn": {
+      "text-color": "#5B93BD"
+    },
+    "Extension": {
+      "text-color": "#5B93BD"
+    },
+    "Preprocessor": {
+      "text-color": "#B08458"
+    },
+    "Attribute": {
+      "text-color": "#5FA8A8"
+    },
+    "Char": {
+      "text-color": "#8DAA6E"
+    },
+    "SpecialChar": {
+      "text-color": "#CF6A9E"
+    },
+    "String": {
+      "text-color": "#8DAA6E"
+    },
+    "VerbatimString": {
+      "text-color": "#8DAA6E"
+    },
+    "SpecialString": {
+      "text-color": "#CF6A9E"
+    },
+    "Import": {
+      "text-color": "#B08458"
+    },
+    "DataType": {
+      "text-color": "#CDA45A"
+    },
+    "DecVal": {
+      "text-color": "#D0705A"
+    },
+    "BaseN": {
+      "text-color": "#D0705A"
+    },
+    "Float": {
+      "text-color": "#D0705A"
+    },
+    "Constant": {
+      "text-color": "#D0705A"
+    },
+    "Comment": {
+      "text-color": "#5F676C",
+      "italic": true
+    },
+    "Documentation": {
+      "text-color": "#5F676C",
+      "italic": true
+    },
+    "Annotation": {
+      "text-color": "#5FA8A8"
+    },
+    "CommentVar": {
+      "text-color": "#8C9296",
+      "italic": true
+    },
+    "RegionMarker": {
+      "text-color": "#5B93BD",
+      "background-color": "#23465F"
+    },
+    "Information": {
+      "text-color": "#5FA8A8"
+    },
+    "Warning": {
+      "text-color": "#CDA45A"
+    },
+    "Alert": {
+      "text-color": "#D0705A",
+      "bold": true
+    },
+    "Error": {
+      "text-color": "#D0705A",
+      "underline": true
+    },
+    "Others": {
+      "text-color": "#5FA8A8"
+    }
+  },
+  "editor-colors": {
+    "BackgroundColor": "#0F1418",
+    "BracketMatching": "#1F272E",
+    "CodeFolding": "#10151A",
+    "CurrentLine": "#141A1F",
+    "CurrentLineNumber": "#C3C7C0",
+    "IconBorder": "#0F1418",
+    "IndentationLine": "#2A333B",
+    "LineNumbers": "#5F676C",
+    "MarkBookmark": "#5B93BD",
+    "MarkBreakpointActive": "#D0705A",
+    "MarkBreakpointDisabled": "#5F676C",
+    "MarkBreakpointReached": "#CDA45A",
+    "MarkError": "#D0705A",
+    "MarkExecution": "#8C9296",
+    "MarkWarning": "#CDA45A",
+    "ModifiedLines": "#CDA45A",
+    "ReplaceHighlight": "#7A5C40",
+    "SavedLines": "#8DAA6E",
+    "SearchHighlight": "#7A5C40",
+    "Separator": "#2A333B",
+    "SpellChecking": "#D0705A",
+    "TabMarker": "#2A333B",
+    "TemplateBackground": "#10151A",
+    "TemplatePlaceholder": "#1F272E",
+    "TemplateFocusedPlaceholder": "#23465F",
+    "TemplateReadOnlyPlaceholder": "#141A1F",
+    "TextSelection": "#23465F",
+    "WordWrapMarker": "#2A333B"
+  }
+}

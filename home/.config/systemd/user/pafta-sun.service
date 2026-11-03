@@ -1,0 +1,8 @@
+[Unit]
+Description=Pafta: print a new edition of the map under the current sun
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/pafta-sun
+Nice=10

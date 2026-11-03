@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [{ "Name": "Claude, for Melih" }],
+        "Category": "Date and Time",
+        "Description": "Pafta's clock for a vertical rail: hours over minutes, the day below, a calendar and the sun's times on click",
+        "Icon": "preferences-system-time",
+        "Id": "org.pafta.railclock",
+        "License": "MIT",
+        "Name": "Pafta Rail Clock",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

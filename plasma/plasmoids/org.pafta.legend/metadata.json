@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [{ "Name": "Claude, for Melih" }],
+        "Category": "Date and Time",
+        "Description": "The title block of the Pafta map sheet: sheet name, scale, time, the sun and the weather. Click the name to turn to the next sheet.",
+        "Icon": "map-flat",
+        "Id": "org.pafta.legend",
+        "License": "MIT",
+        "Name": "Pafta Legend",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

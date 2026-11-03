@@ -1,0 +1,96 @@
+# Pafta for Kigae (~/Code/Kigae). A local manifest: link it into Kigae's manifests folder
+# next to a link to this repo named "pafta" (see README), so "./pafta/…" resolves here.
+schema = 1
+id = "pafta"
+name = "Pafta"
+kanji = "△"
+tagline = "a map sheet, reprinted under the real sun"
+preview = "./pafta/docs/desktop.jpg"
+
+[plasma]
+cursor = "breeze_cursors"
+layout = "./pafta/plasma/layout.js"
+
+[kconfig.kdeglobals]
+"General/font" = "IBM Plex Sans,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0"
+"General/menuFont" = "IBM Plex Sans,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0"
+"General/toolBarFont" = "IBM Plex Sans,9,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0"
+"General/smallestReadableFont" = "IBM Plex Sans,8,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0"
+"General/fixed" = "BlexMono Nerd Font,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,Regular,0,0"
+"WM/activeFont" = "IBM Plex Sans,10,-1,5,500,0,0,0,0,0,0,0,0,0,0,1,Medium,0,0"
+
+[kconfig.kwinrc]
+"org.kde.kdecoration2/library" = "org.kde.kwin.aurorae"
+"org.kde.kdecoration2/BorderSize" = "Normal"
+"org.kde.kdecoration2/BorderSizeAuto" = false
+"org.kde.kdecoration2/ButtonsOnLeft" = ""
+"org.kde.kdecoration2/ButtonsOnRight" = "IAX"
+"Plugins/blurEnabled" = false
+
+[kconfig.konsolerc]
+"Desktop Entry/DefaultProfile" = "Pafta.profile"
+
+[links]
+"~/.config/kitty/kigae-current.conf" = "~/.config/kitty/pafta.conf"
+"~/.config/kitty/dark-theme.auto.conf" = "~/.config/kitty/pafta-night.conf"
+"~/.config/kitty/light-theme.auto.conf" = "~/.config/kitty/pafta-paper.conf"
+"~/.config/kigae/p10k.zsh" = "~/.config/pafta/p10k.zsh"
+"~/.config/nvim/lua/plugins/kigae.lua" = "~/.config/pafta/nvim.lua"
+
+[vscode]
+"workbench.colorTheme" = "Pafta Paper"
+"window.autoDetectColorScheme" = true
+"workbench.preferredLightColorTheme" = "Pafta Paper"
+"workbench.preferredDarkColorTheme" = "Pafta Night"
+"workbench.iconTheme" = "material-icon-theme"
+"material-icon-theme.saturation" = 0.35
+"material-icon-theme.folders.color" = "#9A6A42"
+"material-icon-theme.files.color" = "#8F918C"
+
+# Paper by day, the chart at night. The map itself follows the sun on its own (pafta-sun).
+[daynight.light]
+colors = "PaftaPaper"
+icons = "Tela-circle-brown"
+style = "pafta-paper"
+kconfig.kwinrc."org.kde.kdecoration2/theme" = "__aurorae__svg__PaftaPaper"
+kconfig.katerc."KTextEditor Renderer/Color Theme" = "Pafta Paper"
+kconfig.kwriterc."KTextEditor Renderer/Color Theme" = "Pafta Paper"
+
+[daynight.dark]
+colors = "PaftaNight"
+icons = "Tela-circle-brown-dark"
+style = "pafta-night"
+kconfig.kwinrc."org.kde.kdecoration2/theme" = "__aurorae__svg__PaftaNight"
+kconfig.katerc."KTextEditor Renderer/Color Theme" = "Pafta Night"
+kconfig.kwriterc."KTextEditor Renderer/Color Theme" = "Pafta Night"
+
+[services]
+enable = ["pafta-sun.timer"]
+
+[hooks]
+after = ["~/.local/bin/pafta-sun"]
+
+[install]
+"./pafta/bin/pafta-print" = ".local/bin/pafta-print"
+"./pafta/bin/pafta-sun" = ".local/bin/pafta-sun"
+"./pafta/sheets" = ".local/share/pafta/sheets"
+"./pafta/home/.local/share/color-schemes/PaftaPaper.colors" = ".local/share/color-schemes/PaftaPaper.colors"
+"./pafta/home/.local/share/color-schemes/PaftaNight.colors" = ".local/share/color-schemes/PaftaNight.colors"
+"./pafta/home/.local/share/plasma/desktoptheme/pafta-paper" = ".local/share/plasma/desktoptheme/pafta-paper"
+"./pafta/home/.local/share/plasma/desktoptheme/pafta-night" = ".local/share/plasma/desktoptheme/pafta-night"
+"./pafta/home/.local/share/aurorae/themes/PaftaPaper" = ".local/share/aurorae/themes/PaftaPaper"
+"./pafta/home/.local/share/aurorae/themes/PaftaNight" = ".local/share/aurorae/themes/PaftaNight"
+"./pafta/plasma/plasmoids/org.pafta.railclock" = ".local/share/plasma/plasmoids/org.pafta.railclock"
+"./pafta/plasma/plasmoids/org.pafta.legend" = ".local/share/plasma/plasmoids/org.pafta.legend"
+"./pafta/home/.local/share/icons/hicolor/scalable/apps/pafta-north.svg" = ".local/share/icons/hicolor/scalable/apps/pafta-north.svg"
+"./pafta/home/.local/share/konsole/Pafta.profile" = ".local/share/konsole/Pafta.profile"
+"./pafta/home/.local/share/konsole/PaftaPaper.colorscheme" = ".local/share/konsole/PaftaPaper.colorscheme"
+"./pafta/home/.local/share/konsole/PaftaNight.colorscheme" = ".local/share/konsole/PaftaNight.colorscheme"
+"./pafta/home/.local/share/org.kde.syntax-highlighting/themes/pafta-paper.theme" = ".local/share/org.kde.syntax-highlighting/themes/pafta-paper.theme"
+"./pafta/home/.local/share/org.kde.syntax-highlighting/themes/pafta-night.theme" = ".local/share/org.kde.syntax-highlighting/themes/pafta-night.theme"
+"./pafta/home/.config/kitty/pafta.conf" = ".config/kitty/pafta.conf"
+"./pafta/home/.config/kitty/pafta-paper.conf" = ".config/kitty/pafta-paper.conf"
+"./pafta/home/.config/kitty/pafta-night.conf" = ".config/kitty/pafta-night.conf"
+"./pafta/home/.config/pafta" = ".config/pafta"
+"./pafta/home/.config/systemd/user/pafta-sun.service" = ".config/systemd/user/pafta-sun.service"
+"./pafta/home/.config/systemd/user/pafta-sun.timer" = ".config/systemd/user/pafta-sun.timer"

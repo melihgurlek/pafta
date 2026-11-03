@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <style id="current-color-scheme" type="text/css">.ColorScheme-Text { color:#24282D; }</style>
+  <!-- the north arrow of the sheet's margin: one half inked, the other outlined -->
+  <path class="ColorScheme-Text" fill="currentColor" d="M12 3 L6.5 20.5 L12 16.6 Z"/>
+  <path class="ColorScheme-Text" fill="currentColor" d="M12 3 L17.5 20.5 L12 16.6 Z M12 7.4 L12 15.4 L15.6 17.9 Z" fill-rule="evenodd"/>
+</svg>

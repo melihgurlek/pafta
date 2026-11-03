@@ -1,0 +1,21 @@
+# Erciyes: the lone volcano south of Kayseri, the roof of central Anatolia.
+name = "ERCİYES DAĞI"
+region = "Kayseri"
+lat = 38.56
+lon = 35.47
+zoom = 12
+contour = 50
+index = 250
+
+[[label]]
+kind = "peak"
+name = "Erciyes"
+ele = 3917
+lat = 38.5317
+lon = 35.4467
+
+[[label]]
+kind = "place"
+name = "Hacılar"
+lat = 38.6460
+lon = 35.4490
