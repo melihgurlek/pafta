@@ -1,0 +1,481 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["numpy", "pillow", "ephem"]
+# ///
+"""Print the sky over you right now as a star-atlas plate (test).
+
+    pafta-sky [--at 2026-11-03T22:30] [--out sky.png] [--size 1920x1080] [--rail 48]
+
+Facing south from İstanbul, horizon along the bottom. Stars (Yale Bright Star catalogue),
+constellation figures and the Milky Way come from d3-celestial (BSD-3, Olaf Frohn) and are
+cached in ~/.cache/pafta/sky; the sun, moon and planets are computed here with PyEphem.
+"""
+import argparse, datetime as dt, glob, json, math, os, subprocess, urllib.request
+from pathlib import Path
+
+import ephem
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "pafta" / "sky"
+DATA = "https://cdn.jsdelivr.net/gh/ofrohn/d3-celestial@7e720a3de062/data/"
+LAT, LON, TZ = 41.01, 28.98, dt.timezone(dt.timedelta(hours=3))
+Z = 2  # drawn at 2x and reduced: hairlines and star discs stay crisp
+
+PAPER = dict(bg="#F3F1EA", ground="#E6E2D7", ink="#24282D", ink2="#5E6266", ink3="#8F918C",
+             grid="#2F6690", mw="#C9DCE6", ecl="#9A6A42", over="#A8336F")
+NIGHT = dict(bg="#11171C", ground="#0B0F13", ink="#D6D9D2", ink2="#8C9296", ink3="#5F676C",
+             grid="#5B93BD", mw="#26394A", ecl="#B08458", over="#CF6A9E")
+
+
+def rgb(h):
+    return np.array([int(h[i:i + 2], 16) for i in (1, 3, 5)], float)
+
+
+def mix(a, b, t):
+    return tuple(int(round(v)) for v in rgb(a) * (1 - t) + rgb(b) * t)
+
+
+def data(name):
+    p = CACHE / name
+    if not p.exists():
+        CACHE.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(DATA + name, timeout=30) as r:
+            p.write_bytes(r.read())
+    return json.loads(p.read_text())
+
+
+def font(name, size):
+    for d in [Path.home() / ".local/share/fonts/pafta", Path("/usr/share/fonts")]:
+        hits = glob.glob(str(d / "**" / f"{name}.otf"), recursive=True) + glob.glob(str(d / "**" / f"{name}.ttf"), recursive=True)
+        if hits:
+            return ImageFont.truetype(hits[0], size)
+    return ImageFont.truetype(subprocess.run(["fc-match", "-f", "%{file}", name], capture_output=True, text=True).stdout, size)
+
+
+def text(d, xy, s, f, fill, track=0.0, anchor="l", halo=None):
+    x, y = xy
+    ws = [d.textlength(c, font=f) for c in s]
+    total = sum(ws) + track * f.size * (len(s) - 1)
+    x -= {"l": 0, "c": total / 2, "r": total}[anchor]
+    for halo_pass in ((True, False) if halo else (False,)):
+        xx = x
+        for c, w in zip(s, ws):
+            if halo_pass:
+                d.text((xx, y), c, font=f, fill=halo[0], anchor="ls", stroke_width=halo[1], stroke_fill=halo[0])
+            else:
+                d.text((xx, y), c, font=f, fill=fill, anchor="ls")
+            xx += w + track * f.size
+
+
+class Sky:
+    """Equatorial -> horizontal -> screen. The screen is a Mercator strip of the sky facing
+    south: azimuth runs across, altitude up, so the horizon is straight and figures keep shape."""
+
+    def __init__(self, when, W, H, rail):
+        self.obs = ephem.Observer()
+        self.obs.lat, self.obs.lon, self.obs.pressure = str(LAT), str(LON), 0
+        self.obs.date = ephem.Date(when.astimezone(dt.timezone.utc).replace(tzinfo=None))
+        self.lst = float(self.obs.sidereal_time())
+        self.phi = math.radians(LAT)
+        self.W, self.H = W, H
+        self.cx = (rail + (W - rail) / 2) * Z
+        self.hy = (H - 128) * Z          # the horizon
+        self.k = (W - rail) * Z / math.radians(150)  # 150° of horizon across the sheet
+
+    def hor(self, ra, dec):
+        ra, dec = np.radians(ra), np.radians(dec)
+        h = self.lst - ra
+        sp, cp = math.sin(self.phi), math.cos(self.phi)
+        alt = np.arcsin(sp * np.sin(dec) + cp * np.cos(dec) * np.cos(h))
+        az = np.arctan2(-np.cos(dec) * np.sin(h), np.sin(dec) * cp - np.cos(dec) * np.cos(h) * sp)
+        return alt, az
+
+    def xy(self, alt, az):
+        d = (np.asarray(az) - math.pi + math.pi) % (2 * math.pi) - math.pi  # 0 = due south, + = west
+        alt = np.clip(alt, -1.4, 1.4)
+        return self.cx + self.k * d, self.hy - self.k * np.log(np.tan(math.pi / 4 + alt / 2))
+
+    def eq_of_pixels(self, w, h, s):
+        """RA, Dec (degrees) of a w x h grid of pixel centres at scale s (for raster layers)."""
+        x = (np.arange(w, dtype=np.float32) + 0.5) * s
+        y = (np.arange(h, dtype=np.float32) + 0.5) * s
+        az = math.pi + (x[None, :] - self.cx) / self.k
+        alt = 2 * np.arctan(np.exp((self.hy - y[:, None]) / self.k)) - math.pi / 2
+        sp, cp = math.sin(self.phi), math.cos(self.phi)
+        dec = np.arcsin(np.clip(sp * np.sin(alt) + cp * np.cos(alt) * np.cos(az), -1, 1))
+        ha = np.arctan2(-np.sin(az) * np.cos(alt), np.sin(alt) * cp - np.cos(alt) * np.cos(az) * sp)
+        return np.degrees(self.lst - ha) % 360, np.degrees(dec), alt
+
+
+def gc(a, b, step=1.0):
+    """Points along the great circle from a to b, both (ra, dec) in degrees."""
+    def vec(p):
+        r, d = map(math.radians, p)
+        return np.array([math.cos(d) * math.cos(r), math.cos(d) * math.sin(r), math.sin(d)])
+    va, vb = vec(a), vec(b)
+    ang = math.acos(max(-1, min(1, va @ vb)))
+    n = max(2, int(math.degrees(ang) / step) + 2)
+    t = np.linspace(0, 1, n)[:, None]
+    if ang < 1e-9:
+        v = np.repeat(va[None], n, 0)
+    else:
+        v = (np.sin((1 - t) * ang) * va + np.sin(t * ang) * vb) / math.sin(ang)
+    return np.degrees(np.arctan2(v[:, 1], v[:, 0])) % 360, np.degrees(np.arcsin(np.clip(v[:, 2], -1, 1)))
+
+
+def runs(x, y, W):
+    """Split a projected polyline where it wraps round the back of the sky."""
+    out, cur = [], []
+    for i in range(len(x)):
+        if cur and abs(x[i] - x[i - 1]) > W * Z / 2:
+            out.append(cur)
+            cur = []
+        cur.append((float(x[i]), float(y[i])))
+    if cur:
+        out.append(cur)
+    return [r for r in out if len(r) > 1]
+
+
+def dashed(d, pts, fill, width, on, off):
+    acc, draw_on = 0.0, True
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        L = math.hypot(x1 - x0, y1 - y0)
+        t = 0.0
+        while t < L:
+            seg = min((on if draw_on else off) - acc, L - t)
+            if draw_on:
+                a, b = t / L, (t + seg) / L
+                d.line([(x0 + (x1 - x0) * a, y0 + (y1 - y0) * a), (x0 + (x1 - x0) * b, y0 + (y1 - y0) * b)], fill=fill, width=width)
+            t += seg
+            acc += seg
+            if acc >= (on if draw_on else off) - 1e-6:
+                acc, draw_on = 0.0, not draw_on
+
+
+def mosque(d, cx, base, s, minarets):
+    """An Ottoman mosque in profile: cascading half-domes under one great dome, pencil minarets."""
+    polys = []
+    def dome(x, y, rx, ry, n=24):
+        return [(x - rx + 2 * rx * i / n, y - ry * math.sqrt(max(0, 1 - ((i / n) * 2 - 1) ** 2))) for i in range(n + 1)]
+    body_h = 0.22 * s
+    polys.append([(cx - 0.5 * s, base), (cx - 0.5 * s, base - body_h), (cx + 0.5 * s, base - body_h), (cx + 0.5 * s, base)])
+    for sx in (-1, 1):  # half-domes and the small corner domes
+        polys.append([(cx + sx * 0.36 * s - 0.15 * s, base - body_h)] + dome(cx + sx * 0.36 * s, base - body_h, 0.15 * s, 0.09 * s) + [(cx + sx * 0.36 * s + 0.15 * s, base - body_h)])
+        polys.append(dome(cx + sx * 0.18 * s, base - body_h - 0.04 * s, 0.14 * s, 0.1 * s) + [(cx + sx * 0.18 * s + 0.14 * s, base - body_h), (cx + sx * 0.18 * s - 0.14 * s, base - body_h)])
+    drum_top = base - body_h - 0.13 * s
+    polys.append([(cx - 0.21 * s, base - body_h), (cx - 0.21 * s, drum_top), (cx + 0.21 * s, drum_top), (cx + 0.21 * s, base - body_h)])
+    polys.append(dome(cx, drum_top, 0.23 * s, 0.19 * s, 40) + [(cx + 0.23 * s, drum_top + 1), (cx - 0.23 * s, drum_top + 1)])
+    top = drum_top - 0.19 * s
+    for k, (mx, mh) in enumerate(minarets):
+        x = cx + mx * s
+        mw = 0.022 * s
+        h = mh * s
+        polys.append([(x - mw, base), (x - mw, base - h), (x, base - h - 0.13 * s), (x + mw, base - h), (x + mw, base)])
+        for b in (0.55, 0.75, 0.9)[: 3 if mh > 0.9 else 2]:
+            yb = base - h * b
+            polys.append([(x - mw * 1.9, yb), (x + mw * 1.9, yb), (x + mw * 1.9, yb - 0.018 * s), (x - mw * 1.9, yb - 0.018 * s)])
+    for poly in polys:
+        d.polygon(poly, fill=255)
+    d.line([(cx, top), (cx, top - 0.08 * s)], fill=255, width=max(2, int(0.012 * s)))
+
+
+def skyline(img, sky, W, H, rail, fill, line):
+    """The historic peninsula across the Golden Horn, seen from Beyoğlu looking south."""
+    rng = np.random.default_rng(1453)
+    gy = sky.hy
+    mask = Image.new("L", (W * Z, H * Z), 0)
+    d = ImageDraw.Draw(mask)
+    # the low town: roofs along a gentle line of hills
+    x = rail * Z
+    pts = [(x, gy)]
+    while x < W * Z:
+        az = math.pi + (x - sky.cx) / sky.k
+        hill = (6 + 7 * math.sin(az * 5.1) ** 2 + 4 * math.sin(az * 11.7 + 1) ** 2) * Z
+        w = rng.uniform(6, 16) * Z
+        h = hill + rng.uniform(0, 5) * Z
+        if rng.random() < 0.12:  # a cypress
+            ch = rng.uniform(16, 24) * Z
+            pts += [(x, gy - h), (x + 1.2 * Z, gy - h - ch * 0.55), (x + 2.6 * Z, gy - h - ch * 0.9), (x + 3.2 * Z, gy - h - ch),
+                    (x + 3.8 * Z, gy - h - ch * 0.9), (x + 5.2 * Z, gy - h - ch * 0.55), (x + 6.4 * Z, gy - h)]
+            x += 6.4 * Z
+            continue
+        pts += [(x, gy - h), (x + w, gy - h)]
+        x += w
+    pts += [(W * Z, gy)]
+    d.polygon(pts, fill=255)
+    k = sky.k * math.radians(1)  # px per degree
+    at = lambda az: sky.xy(0.0, math.radians(az))[0]
+    # Süleymaniye on its hill, Yeni Cami by the water, the Blue Mosque and Hagia Sophia on the point
+    mosque(d, at(207), gy - 14 * Z, 13 * k, [(-0.62, 0.95), (0.62, 0.95), (-0.82, 0.75), (0.82, 0.75)])
+    mosque(d, at(182), gy - 4 * Z, 8.5 * k, [(-0.58, 0.85), (0.58, 0.85)])
+    mosque(d, at(146), gy - 12 * Z, 12 * k, [(-0.6, 0.95), (0.6, 0.95), (-0.78, 0.95), (0.78, 0.95), (-0.95, 0.8), (0.95, 0.8)])
+    mosque(d, at(127), gy - 10 * Z, 10 * k, [(-0.66, 0.8), (0.66, 0.9), (0.8, 0.75), (-0.8, 0.7)])
+    edge = Image.fromarray(np.asarray(mask.filter(ImageFilter.MaxFilter(2 * Z + 1)), np.int16).__sub__(np.asarray(mask, np.int16)).clip(0, 255).astype(np.uint8))
+    img.paste(Image.new("RGB", mask.size, line), (0, 0), edge)
+    img.paste(Image.new("RGB", mask.size, fill), (0, 0), mask)
+    # its reflection in the Golden Horn, broken into ripples
+    above = np.asarray(mask.crop((0, 0, W * Z, gy)).transpose(Image.FLIP_TOP_BOTTOM).resize((W * Z, int(gy * 0.45))), np.float32)
+    rows = (np.arange(above.shape[0]) // (2 * Z)) % 3 == 0
+    shift = (np.sin(np.arange(above.shape[0]) * 0.21) * 3 * Z).astype(int)
+    for r in np.nonzero(rows)[0]:
+        above[r] = np.roll(above[r], shift[r])
+    above[~rows] = 0
+    fade = np.linspace(0.45, 0.05, above.shape[0], dtype=np.float32)[:, None]
+    refl = Image.fromarray((above * fade).astype(np.uint8))
+    img.paste(Image.new("RGB", refl.size, line), (0, int(gy + 2 * Z)), refl)
+
+
+def render(when, W, H, rail):
+    sky = Sky(when, W, H, rail)
+    sun = ephem.Sun(sky.obs)
+    s_alt = math.degrees(float(sun.alt))
+    night = 1.0 if s_alt < -6 else 0.0  # paper until civil dusk, then the night plate (a blend reads as mud)
+    pal = {k: mix(PAPER[k], NIGHT[k], night) for k in PAPER}
+    hexs = {k: "#%02x%02x%02x" % v for k, v in pal.items()}
+    bg = pal["bg"]
+
+    img = Image.new("RGB", (W * Z, H * Z), bg)
+
+    # the Milky Way: rasterised in RA/Dec, then looked up per screen pixel, so it can wrap freely
+    mw = data("mw.json")["features"]
+    ew, eh = 2048, 1024
+    lv = np.zeros((eh, ew), np.float32)
+    for i, f in enumerate(mw):
+        m = np.zeros((eh, ew), bool)  # rings combine even-odd, as d3 fills them
+        for poly in f["geometry"]["coordinates"]:
+            for ring in poly:
+                r = Image.new("1", (ew, eh), 0)
+                ImageDraw.Draw(r).polygon([((lon + 180) / 360 * ew, (90 - lat) / 180 * eh) for lon, lat in ring], fill=1)
+                m ^= np.asarray(r, bool)
+        lv = np.maximum(lv, m * np.float32((i + 1) / len(mw)))
+    s = 2  # one lookup per 2x2 screen pixels; the band is soft anyway
+    ra, dec, _ = sky.eq_of_pixels(W * Z // s, H * Z // s, s)
+    band = lv[np.clip(((90 - dec) / 180 * eh).astype(int), 0, eh - 1), np.clip(((ra + 180) % 360 / 360 * ew).astype(int), 0, ew - 1)]
+    band = np.asarray(Image.fromarray((band * 255).astype(np.uint8)).resize((W * Z, H * Z), Image.BILINEAR)
+                      .filter(ImageFilter.GaussianBlur(6 * Z)), np.float32)[..., None] / 255
+    base = np.asarray(img, np.float32)
+    img = Image.fromarray((base * (1 - band * 0.95) + np.array(pal["mw"], np.float32) * band * 0.95).astype(np.uint8))
+    d = ImageDraw.Draw(img)
+
+    # graticule: hour circles and parallels, celestial equator a little heavier
+    grid = mix(hexs["grid"], hexs["bg"], 0.72)
+    for h in range(24):
+        ra_ = np.full(181, h * 15.0)
+        dc = np.linspace(-89, 89, 181)
+        x, y = sky.xy(*sky.hor(ra_, dc))
+        for r in runs(x, y, W):
+            d.line(r, fill=grid, width=Z)
+    for dc in range(-60, 90, 15):
+        ra_ = np.linspace(0, 360, 361)
+        x, y = sky.xy(*sky.hor(ra_, np.full(361, float(dc))))
+        for r in runs(x, y, W):
+            d.line(r, fill=mix(hexs["grid"], hexs["bg"], 0.5) if dc == 0 else grid, width=Z)
+
+    # the ecliptic, dashed: where the sun, moon and planets walk
+    lam = np.radians(np.linspace(0, 360, 721))
+    eps = math.radians(23.44)
+    e_ra = np.degrees(np.arctan2(np.sin(lam) * math.cos(eps), np.cos(lam))) % 360
+    e_dec = np.degrees(np.arcsin(np.sin(lam) * math.sin(eps)))
+    x, y = sky.xy(*sky.hor(e_ra, e_dec))
+    for r in runs(x, y, W):
+        dashed(d, r, mix(hexs["ecl"], hexs["bg"], 0.25), Z, 9 * Z, 6 * Z)
+
+    # constellation figures
+    fig = mix(hexs["ink2"], hexs["bg"], 0.35 + 0.2 * night)
+    for f in data("constellations.lines.json")["features"]:
+        for line in f["geometry"]["coordinates"]:
+            for a, b in zip(line, line[1:]):
+                ra_, dc = gc(a, b)
+                x, y = sky.xy(*sky.hor(ra_, dc))
+                for r in runs(x, y, W):
+                    d.line(r, fill=fig, width=Z)
+
+    # the sun's path today, with the hours on it
+    f_hour = font("IBMPlexMono-Regular", 10 * Z)
+    f_mark = font("IBMPlexSans-Medium", 10 * Z)
+    over = pal["over"]
+    day0 = when.replace(hour=0, minute=0, second=0, microsecond=0)
+    path, ticks = [], []
+    o = ephem.Observer()
+    o.lat, o.lon, o.pressure = str(LAT), str(LON), 0
+    for m in range(0, 24 * 60 + 1, 6):
+        t = day0 + dt.timedelta(minutes=m)
+        o.date = ephem.Date(t.astimezone(dt.timezone.utc).replace(tzinfo=None))
+        b = ephem.Sun(o)
+        path.append((float(b.alt), float(b.az)))
+        if m % 60 == 0:
+            ticks.append((t.hour, float(b.alt), float(b.az)))
+    if night < 1:
+        pa = np.array(path)
+        x, y = sky.xy(pa[:, 0], pa[:, 1])
+        for r in runs(x, y, W):
+            dashed(d, r, mix(hexs["over"], hexs["bg"], 0.35 + 0.5 * night), Z, 3 * Z, 5 * Z)
+        for hr, a, z in ticks:
+            if a > math.radians(1):
+                tx, ty = sky.xy(a, z)
+                d.ellipse([tx - 2 * Z, ty - 2 * Z, tx + 2 * Z, ty + 2 * Z], fill=over)
+                text(d, (tx, ty - 7 * Z), f"{hr:02d}", f_hour, over, anchor="c", halo=(bg, 3 * Z))
+
+    # stars, each knocked out of the lines around it like an engraved atlas
+    stars = data("stars.6.json")["features"]
+    mags = np.array([f["properties"]["mag"] for f in stars])
+    ra_ = np.array([f["geometry"]["coordinates"][0] for f in stars]) % 360
+    dc = np.array([f["geometry"]["coordinates"][1] for f in stars])
+    alt, az = sky.hor(ra_, dc)
+    x, y = sky.xy(alt, az)
+    vis = (alt > math.radians(0.5)) & (x > rail * Z) & (x < W * Z) & (y > 0)
+    ink = pal["ink"]
+    for i in np.argsort(-mags):
+        if not vis[i]:
+            continue
+        r = max(0.55, (6.2 - mags[i]) * 0.78) * Z
+        g = 1.6 * Z
+        d.ellipse([x[i] - r - g, y[i] - r - g, x[i] + r + g, y[i] + r + g], fill=tuple(int(v) for v in np.asarray(img.getpixel((int(x[i]), int(y[i]))))))
+        col = ink if mags[i] < 4.5 else mix(hexs["ink"], hexs["bg"], 0.3)
+        d.ellipse([x[i] - r, y[i] - r, x[i] + r, y[i] + r], fill=col)
+
+    # names: constellations in spaced capitals, bright stars in italics
+    f_con = font("IBMPlexSans-Regular", 10 * Z)
+    f_star = font("IBMPlexSerif-Italic", 12 * Z)
+    con_c = mix(hexs["ink2"], hexs["bg"], 0.15)
+    placed = []
+    def free(b):
+        return not any(b[0] < q[2] and q[0] < b[2] and b[1] < q[3] and q[1] < b[3] for q in placed)
+    def label(xy, s, f, fill, anchor="l"):
+        w = d.textlength(s, font=f)
+        x0 = xy[0] - (w if anchor == "r" else 0)
+        placed.append((x0 - 4 * Z, xy[1] - f.size, x0 + w + 4 * Z, xy[1] + 4 * Z))
+        text(d, xy, s, f, fill, anchor=anchor, halo=(bg, 3 * Z))
+    names = data("starnames.json")
+    for i in np.argsort(mags)[:60]:
+        nm = names.get(str(stars[i]["id"]), {}).get("name", "")
+        if vis[i] and nm and mags[i] < 1.9 and alt[i] > math.radians(4):
+            r = max(0.55, (6.2 - mags[i]) * 0.78) * Z
+            w_ = d.textlength(nm, font=f_star)
+            if free((x[i] + r + Z, y[i] - 8 * Z, x[i] + r + 9 * Z + w_, y[i] + 8 * Z)):
+                label((x[i] + r + 5 * Z, y[i] + 4 * Z), nm, f_star, ink)
+
+    # planets and the moon, on the overprint plate
+    f_pl = font("IBMPlexSerif-Italic", 13 * Z)
+    sun_xy = sky.xy(float(sun.alt), float(sun.az)) if s_alt > -1 else None
+    if s_alt > -1:
+        sx, sy = sky.xy(float(sun.alt), float(sun.az))
+        placed.append((sx - 16 * Z, sy - 16 * Z, sx + 16 * Z, sy + 16 * Z))
+        d.ellipse([sx - 16 * Z, sy - 16 * Z, sx + 16 * Z, sy + 16 * Z], fill=bg)
+        d.ellipse([sx - 9 * Z, sy - 9 * Z, sx + 9 * Z, sy + 9 * Z], outline=over, width=2 * Z)
+        d.ellipse([sx - 2 * Z, sy - 2 * Z, sx + 2 * Z, sy + 2 * Z], fill=over)
+        for kk in range(12):
+            a = kk * math.pi / 6
+            d.line([(sx + math.cos(a) * 12 * Z, sy + math.sin(a) * 12 * Z), (sx + math.cos(a) * 15 * Z, sy + math.sin(a) * 15 * Z)], fill=over, width=Z)
+
+    for body in (ephem.Mercury(), ephem.Venus(), ephem.Mars(), ephem.Jupiter(), ephem.Saturn()):
+        body.compute(sky.obs)
+        a, z = float(body.alt), float(body.az)
+        if a < math.radians(1):
+            continue
+        px, py = sky.xy(a, z)
+        if not rail * Z < px < W * Z:
+            continue
+        d.ellipse([px - 9 * Z, py - 9 * Z, px + 9 * Z, py + 9 * Z], fill=bg)
+        d.ellipse([px - 4 * Z, py - 4 * Z, px + 4 * Z, py + 4 * Z], fill=over)
+        d.ellipse([px - 8 * Z, py - 8 * Z, px + 8 * Z, py + 8 * Z], outline=over, width=Z)
+        if sun_xy and 0 < sun_xy[0] - px < 200 * Z and abs(sun_xy[1] - py) < 40 * Z:  # keep clear of the sun
+            label((px - 13 * Z, py + 5 * Z), body.name, f_pl, over, anchor="r")
+        else:
+            label((px + 13 * Z, py + 5 * Z), body.name, f_pl, over)
+        placed.append((px - 9 * Z, py - 9 * Z, px + 9 * Z, py + 9 * Z))
+
+    moon = ephem.Moon(sky.obs)
+    ma, mz = float(moon.alt), float(moon.az)
+    lit = moon.moon_phase
+    if ma > math.radians(-0.5):
+        mx, my = sky.xy(ma, mz)
+        R = 15 * Z
+        # bright limb: toward the sun along the sky
+        sa, sz = float(sun.alt), float(sun.az)
+        v = lambda a, z: np.array([math.cos(a) * math.sin(z), math.cos(a) * math.cos(z), math.sin(a)])
+        vm, vs = v(ma, mz), v(sa, sz)
+        ang = math.acos(max(-1, min(1, vm @ vs)))
+        tq = math.radians(2) / max(ang, 1e-6)
+        vt = (math.sin((1 - tq) * ang) * vm + math.sin(tq * ang) * vs) / math.sin(ang)
+        tx, ty = sky.xy(math.asin(vt[2]), math.atan2(vt[0], vt[1]))
+        ux, uy = tx - mx, ty - my
+        n = math.hypot(ux, uy) or 1
+        ux, uy = ux / n, uy / n
+        size = int(2 * R + 8 * Z)
+        yy, xx = np.mgrid[0:size, 0:size].astype(np.float32) - size / 2 + 0.5
+        u = xx * ux + yy * uy           # toward the sun
+        w = -xx * uy + yy * ux
+        inside = xx * xx + yy * yy <= R * R
+        t = 1 - 2 * lit
+        lit_m = inside & (u > t * np.sqrt(np.maximum(R * R - w * w, 0)))
+        d.ellipse([mx - R - 3 * Z, my - R - 3 * Z, mx + R + 3 * Z, my + R + 3 * Z], fill=bg)
+        m = Image.fromarray((lit_m * 255).astype(np.uint8))
+        img.paste(Image.new("RGB", m.size, over), (int(mx - size / 2), int(my - size / 2)), m)
+        d.ellipse([mx - R, my - R, mx + R, my + R], outline=over, width=Z)
+        label((mx + R + 8 * Z, my + 5 * Z), f"Moon  {lit * 100:.0f}%", f_pl, over)
+        placed.append((mx - R, my - R, mx + R, my + R))
+
+    # constellation names last, only where they don't crowd a star, planet or the moon
+    for f in data("constellations.json")["features"]:
+        lr, ld = f["geometry"]["coordinates"]
+        a, z = sky.hor(np.array([lr % 360]), np.array([ld]))
+        if a[0] < math.radians(9):
+            continue
+        lx, ly = (float(v[0]) for v in sky.xy(a, z))
+        nm = f["properties"]["name"].upper()
+        half = (d.textlength(nm, font=f_con) + 0.32 * f_con.size * len(nm)) / 2
+        box = (lx - half, ly - 10 * Z, lx + half, ly + 3 * Z)
+        if rail * Z + 20 * Z < box[0] and box[2] < W * Z - 20 * Z and 30 * Z < ly and free(box):
+            text(d, (lx, ly), nm, f_con, con_c, track=0.32, anchor="c", halo=(bg, 3 * Z))
+
+    # the ground: a plain band under a ruled horizon, the compass along it
+    gy = sky.hy
+    d.rectangle([0, gy, W * Z, H * Z], fill=pal["ground"])
+    hatch = mix(hexs["ink3"], hexs["ground"], 0.6)
+    yy, gap = gy + 5 * Z, 3.0 * Z
+    while yy < H * Z:
+        d.line([(0, yy), (W * Z, yy)], fill=hatch, width=1)
+        yy += gap
+        gap *= 1.11
+    skyline(img, sky, W, H, rail, pal["ground"], mix(hexs["ink"], hexs["ink2"], 0.3 + 0.7 * night))
+    d.line([(0, gy), (W * Z, gy)], fill=ink, width=Z)
+    f_cmp = font("IBMPlexSans-Medium", 11 * Z)
+    f_deg = font("IBMPlexMono-Regular", 9 * Z)
+    winds = {0: "N", 45: "NE", 90: "E", 135: "SE", 180: "S", 225: "SW", 270: "W", 315: "NW"}
+    by = H * Z - 1  # the compass is the sheet's bottom edge, like a graduated frame
+    for deg in range(0, 360, 5):
+        tx, _ = sky.xy(0.0, math.radians(deg))
+        if not rail * Z + 20 * Z < tx < W * Z - 20 * Z:
+            continue
+        L = 9 * Z if deg % 15 == 0 else 4 * Z
+        d.line([(tx, by), (tx, by - L)], fill=ink, width=Z)
+        if deg in winds:
+            text(d, (tx, by - 15 * Z), winds[deg], f_cmp, ink, track=0.2, anchor="c", halo=(pal["ground"], 3 * Z))
+        elif deg % 15 == 0:
+            text(d, (tx, by - 14 * Z), f"{deg}°", f_deg, pal["ink2"], anchor="c", halo=(pal["ground"], 3 * Z))
+
+    # frame
+    d.rectangle([rail * Z, 0, W * Z - 1, H * Z - 1], outline=ink, width=Z)
+    f_cred = font("IBMPlexMono-Regular", 9 * Z)
+    text(d, (W * Z - 14 * Z, 20 * Z), f"SKY OVER İSTANBUL  {when:%d %b %Y  %H:%M}".upper() + "  ·  YALE BSC · D3-CELESTIAL", f_cred, pal["ink2"], track=0.1, anchor="r")
+
+    return img.resize((W, H), Image.LANCZOS)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--at")
+    ap.add_argument("--out", default="sky.png")
+    ap.add_argument("--size", default="1920x1080")
+    ap.add_argument("--rail", type=int, default=48)
+    a = ap.parse_args()
+    when = dt.datetime.fromisoformat(a.at).replace(tzinfo=TZ) if a.at else dt.datetime.now(TZ)
+    W, H = map(int, a.size.split("x"))
+    render(when, W, H, a.rail).save(a.out)
+
+
+if __name__ == "__main__":
+    main()
