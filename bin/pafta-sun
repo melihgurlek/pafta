@@ -35,8 +35,9 @@ esac
 exec 9>"$cache/.lock"
 flock -w 60 9
 out="$cache/print-$(date +%s).jpg"
-"$here/pafta-print" --no-legend --state "$cache/state.json.new" --out "$out" 2>/dev/null >/dev/null
+"$here/pafta-print" --no-legend --state "$cache/state.json.new" --inset "$cache/inset.png.new" --out "$out" 2>/dev/null >/dev/null
 mv "$cache/state.json.new" "$cache/state.json"
+mv "$cache/inset.png.new" "$cache/inset.png"
 # Plasma only crossfades to a new file name; keep the one on screen until the new one is up
 plasma-apply-wallpaperimage "$out" >/dev/null
 find "$cache" -maxdepth 1 -name 'print-*.jpg' ! -name "${out##*/}" -mmin +1 -delete
