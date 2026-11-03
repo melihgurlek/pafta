@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Claude, for Melih"
+            }
+        ],
+        "Description": "Pafta: the margin of a map sheet, legend boxes for popups",
+        "Id": "pafta-paper",
+        "Name": "Pafta Paper",
+        "License": "LGPL",
+        "Version": "1.0"
+    },
+    "X-Plasma-API": "5.0"
+}

@@ -1,0 +1,46 @@
+# Pafta palette: every colour belongs to a printing plate of a topographic map.
+# black plate = type and frame, brown = relief, blue = water, green = vegetation,
+# red = roads, and the magenta overprint = the rare "you are here" mark.
+# Day is a paper sheet; night is a chart under a red-free bridge light.
+
+[paper]               # day
+view      = "#FBFAF6" # text areas, lists, editor and terminal background
+window    = "#F3F1EA" # window background
+header    = "#EAE7DE" # title bars, headers, the rail, tab bars
+raised    = "#DCD8CC" # buttons, current line, hover
+rule      = "#C9C4B6" # hairlines, separators, inactive borders
+ink       = "#24282D" # text, frame lines
+ink2      = "#5E6266" # secondary text
+ink3      = "#8F918C" # inactive text, comments, line numbers
+brown     = "#9A6A42" # contour brown
+brown_lt  = "#C49A6C"
+blue      = "#2F6690" # water: selection, links, focus
+blue_lt   = "#D4E3EA" # shallow water: subtle selection, highlights
+green     = "#4F7A3A" # vegetation
+red       = "#B5452F" # roads
+ochre     = "#A87B1F"
+cyan      = "#2C7C82" # shallow water edge
+magenta   = "#A8336F" # overprint: the accent, used rarely
+
+[night]               # chart at night
+view      = "#0F1418"
+window    = "#141A1F"
+header    = "#10151A"
+raised    = "#1F272E"
+rule      = "#2A333B"
+ink       = "#C3C7C0"
+ink2      = "#8C9296"
+ink3      = "#5F676C"
+brown     = "#B08458"
+brown_lt  = "#7A5C40"
+blue      = "#5B93BD"
+blue_lt   = "#23465F" # selection background at night
+green     = "#8DAA6E"
+red       = "#D0705A"
+ochre     = "#CDA45A"
+cyan      = "#5FA8A8"
+magenta   = "#CF6A9E"
+
+# Syntax (both sides): keywords brown, strings green, functions blue, numbers and constants
+# red, types ochre, comments ink3 italic, operators ink2, tags/special cyan, magenta only for
+# errors-free "special" marks (regex, escapes) and the cursor.

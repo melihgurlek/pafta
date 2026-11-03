@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# pafta-sun: print a new edition of the map sheet and put it on the desktop.
+# Run every 10 minutes by pafta-sun.timer, so the shadows follow the sun (and the moon).
+#
+#   pafta-sun                 print now
+#   pafta-sun next | prev     turn the atlas to the next or previous sheet, then print
+#   pafta-sun sheet <id>      open a given sheet (see `pafta-sun sheets`)
+#   pafta-sun sheets          list the sheets
+set -euo pipefail
+here=$(dirname "$(readlink -f "$0")")
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/pafta
+state=${XDG_STATE_HOME:-$HOME/.local/state}/pafta
+sheets_dir=$here/../sheets
+[[ -d $sheets_dir ]] || sheets_dir=${XDG_DATA_HOME:-$HOME/.local/share}/pafta/sheets
+mkdir -p "$cache" "$state"
+
+mapfile -t sheets < <(find "$sheets_dir" -name '*.toml' -printf '%f\n' | sed 's/\.toml$//' | sort)
+current=$(cat "$state/sheet" 2>/dev/null || echo agri)
+
+turn() {  # move $1 sheets along the atlas
+    local i n=${#sheets[@]}
+    for i in "${!sheets[@]}"; do [[ ${sheets[$i]} == "$current" ]] && break; done
+    echo "${sheets[$(( (i + $1 + n) % n ))]}" > "$state/sheet"
+}
+
+case ${1:-} in
+    next) turn 1 ;;
+    prev) turn -1 ;;
+    sheet) [[ -f $sheets_dir/${2:-}.toml ]] || { echo "no sheet ${2:-}" >&2; exit 1; }; echo "$2" > "$state/sheet" ;;
+    sheets) printf '%s\n' "${sheets[@]}"; exit ;;
+    "") ;;
+    *) sed -n '2,9p' "$0"; exit 1 ;;
+esac
+
+exec 9>"$cache/.lock"
+flock -w 60 9
+out="$cache/print-$(date +%s).jpg"
+"$here/pafta-print" --no-legend --state "$cache/state.json.new" --out "$out" 2>/dev/null >/dev/null
+mv "$cache/state.json.new" "$cache/state.json"
+# Plasma only crossfades to a new file name; keep the one on screen until the new one is up
+plasma-apply-wallpaperimage "$out" >/dev/null
+find "$cache" -maxdepth 1 -name 'print-*.jpg' ! -name "${out##*/}" -mmin +1 -delete

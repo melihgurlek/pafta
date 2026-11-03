@@ -1,0 +1,39 @@
+{
+  "name": "pafta-theme",
+  "displayName": "Pafta",
+  "description": "A topographic map sheet by day, a dark nautical chart at night. Two colour themes: Pafta Paper and Pafta Night.",
+  "version": "0.1.0",
+  "publisher": "melihgurlek",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/melihgurlek/pafta"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Themes"
+  ],
+  "keywords": [
+    "theme",
+    "light",
+    "dark",
+    "map",
+    "paper"
+  ],
+  "contributes": {
+    "themes": [
+      {
+        "label": "Pafta Paper",
+        "uiTheme": "vs",
+        "path": "./themes/pafta-paper-color-theme.json"
+      },
+      {
+        "label": "Pafta Night",
+        "uiTheme": "vs-dark",
+        "path": "./themes/pafta-night-color-theme.json"
+      }
+    ]
+  }
+}
