@@ -154,31 +154,106 @@ def dashed(d, pts, fill, width, on, off):
                 acc, draw_on = 0.0, not draw_on
 
 
-def mosque(d, cx, base, s, minarets):
-    """An Ottoman mosque in profile: cascading half-domes under one great dome, pencil minarets."""
-    polys = []
-    def dome(x, y, rx, ry, n=24):
-        return [(x - rx + 2 * rx * i / n, y - ry * math.sqrt(max(0, 1 - ((i / n) * 2 - 1) ** 2))) for i in range(n + 1)]
-    body_h = 0.22 * s
-    polys.append([(cx - 0.5 * s, base), (cx - 0.5 * s, base - body_h), (cx + 0.5 * s, base - body_h), (cx + 0.5 * s, base)])
-    for sx in (-1, 1):  # half-domes and the small corner domes
-        polys.append([(cx + sx * 0.36 * s - 0.15 * s, base - body_h)] + dome(cx + sx * 0.36 * s, base - body_h, 0.15 * s, 0.09 * s) + [(cx + sx * 0.36 * s + 0.15 * s, base - body_h)])
-        polys.append(dome(cx + sx * 0.18 * s, base - body_h - 0.04 * s, 0.14 * s, 0.1 * s) + [(cx + sx * 0.18 * s + 0.14 * s, base - body_h), (cx + sx * 0.18 * s - 0.14 * s, base - body_h)])
-    drum_top = base - body_h - 0.13 * s
-    polys.append([(cx - 0.21 * s, base - body_h), (cx - 0.21 * s, drum_top), (cx + 0.21 * s, drum_top), (cx + 0.21 * s, base - body_h)])
-    polys.append(dome(cx, drum_top, 0.23 * s, 0.19 * s, 40) + [(cx + 0.23 * s, drum_top + 1), (cx - 0.23 * s, drum_top + 1)])
-    top = drum_top - 0.19 * s
-    for k, (mx, mh) in enumerate(minarets):
-        x = cx + mx * s
-        mw = 0.022 * s
-        h = mh * s
-        polys.append([(x - mw, base), (x - mw, base - h), (x, base - h - 0.13 * s), (x + mw, base - h), (x + mw, base)])
-        for b in (0.55, 0.75, 0.9)[: 3 if mh > 0.9 else 2]:
-            yb = base - h * b
-            polys.append([(x - mw * 1.9, yb), (x + mw * 1.9, yb), (x + mw * 1.9, yb - 0.018 * s), (x - mw * 1.9, yb - 0.018 * s)])
-    for poly in polys:
-        d.polygon(poly, fill=255)
-    d.line([(cx, top), (cx, top - 0.08 * s)], fill=255, width=max(2, int(0.012 * s)))
+def dome(x, y, rx, ry, n=24):
+    return [(x - rx + 2 * rx * i / n, y - ry * math.sqrt(max(0, 1 - ((i / n) * 2 - 1) ** 2))) for i in range(n + 1)]
+
+
+def aqueduct(d, x0, x1, base, h):
+    """Valens: two storeys of arches marching across the town."""
+    d.rectangle([x0, base - h, x1, base], fill=255)
+    bay = (x1 - x0) / round((x1 - x0) / (h * 0.42))
+    x = x0
+    while x + bay <= x1 + 1:
+        for top, bot, w in ((base - h * 0.52, base, 0.62), (base - h * 0.9, base - h * 0.6, 0.55)):
+            hw = bay * w / 2
+            cx = x + bay / 2
+            d.rectangle([cx - hw, top + hw, cx + hw, bot], fill=0)
+            d.ellipse([cx - hw, top, cx + hw, top + 2 * hw], fill=0)
+        x += bay
+
+
+def galata(d, cx, base, s):
+    """Galata Tower: a stone drum, an arcaded gallery and the tall cone."""
+    w = 0.11 * s
+    d.polygon([(cx - w * 1.08, base), (cx - w, base - 0.62 * s), (cx + w, base - 0.62 * s), (cx + w * 1.08, base)], fill=255)
+    d.rectangle([cx - w * 1.18, base - 0.64 * s, cx + w * 1.18, base - 0.62 * s], fill=255)  # balcony
+    d.rectangle([cx - w * 0.95, base - 0.76 * s, cx + w * 0.95, base - 0.64 * s], fill=255)  # gallery
+    for i in range(4):
+        ax = cx - w * 0.72 + i * w * 0.48
+        d.rectangle([ax - w * 0.1, base - 0.73 * s, ax + w * 0.1, base - 0.66 * s], fill=0)
+        d.ellipse([ax - w * 0.1, base - 0.75 * s, ax + w * 0.1, base - 0.71 * s], fill=0)
+    d.rectangle([cx - w * 1.1, base - 0.78 * s, cx + w * 1.1, base - 0.76 * s], fill=255)
+    d.polygon([(cx - w * 1.02, base - 0.78 * s), (cx - w * 0.5, base - 0.92 * s), (cx, base - 1.08 * s),
+               (cx + w * 0.5, base - 0.92 * s), (cx + w * 1.02, base - 0.78 * s)], fill=255)
+    d.line([(cx, base - 1.08 * s), (cx, base - 1.15 * s)], fill=255, width=max(2, int(0.012 * s)))
+    for i in range(3):  # a few windows down the drum
+        d.rectangle([cx - w * 0.08, base - (0.2 + 0.14 * i) * s, cx + w * 0.08, base - (0.15 + 0.14 * i) * s], fill=0)
+
+
+def bridge(d, thin, x0, x1, base, h, Zs):
+    """The Bosphorus Bridge broadside: two towers, the deck, the main cable and its hangers."""
+    L = x1 - x0
+    d.rectangle([x0 + 0.05 * L, base - h, x1 - 0.05 * L, base], fill=0)  # open water under the span
+    ta, tb = x0 + 0.2 * L, x1 - 0.2 * L
+    deck = base - 0.3 * h
+    d.rectangle([x0, deck - 0.05 * h, x1, deck], fill=255)
+    for tx in (ta, tb):
+        d.polygon([(tx - 0.045 * h, base), (tx - 0.028 * h, base - h), (tx + 0.028 * h, base - h), (tx + 0.045 * h, base)], fill=255)
+        for f in (0.45, 0.75, 0.97):
+            d.rectangle([tx - 0.05 * h, base - f * h - 0.02 * h, tx + 0.05 * h, base - f * h], fill=255)
+    for px in (x0 + 0.04 * L, x1 - 0.04 * L):  # approach piers
+        d.rectangle([px - 0.02 * h, deck, px + 0.02 * h, base], fill=255)
+    def cable(xa, ya, xb, yb, sag):
+        pts = []
+        for i in range(61):
+            u = i / 60
+            pts.append((xa + (xb - xa) * u, ya + (yb - ya) * u + sag * 4 * u * (1 - u)))
+        return pts
+    top = base - h * 0.98
+    spans = [cable(ta, top, tb, top, (deck - 0.08 * h) - top), cable(x0, deck - 0.05 * h, ta, top, 0.12 * h), cable(tb, top, x1, deck - 0.05 * h, 0.12 * h)]
+    for pts in spans:
+        d.line(pts, fill=255, width=max(2, Zs))
+        for (cx, cy) in pts[3:-3:3]:  # hangers go on a hairline plate: outlined they'd read double
+            thin.line([(cx, cy), (cx, deck - 0.05 * h)], fill=255, width=Zs)
+
+
+def maiden(d, cx, base, s):
+    """Maiden's Tower on its rock in the strait."""
+    d.polygon([(cx - 0.42 * s, base + 0.02 * s), (cx - 0.3 * s, base - 0.06 * s), (cx + 0.34 * s, base - 0.07 * s), (cx + 0.46 * s, base + 0.02 * s)], fill=255)
+    d.rectangle([cx - 0.3 * s, base - 0.22 * s, cx + 0.05 * s, base - 0.06 * s], fill=255)       # the house
+    d.rectangle([cx + 0.05 * s, base - 0.62 * s, cx + 0.22 * s, base - 0.06 * s], fill=255)      # the tower
+    d.rectangle([cx + 0.03 * s, base - 0.66 * s, cx + 0.24 * s, base - 0.62 * s], fill=255)
+    d.rectangle([cx + 0.08 * s, base - 0.8 * s, cx + 0.19 * s, base - 0.66 * s], fill=255)       # lantern
+    d.polygon(dome(cx + 0.135 * s, base - 0.8 * s, 0.065 * s, 0.07 * s), fill=255)
+    d.line([(cx + 0.135 * s, base - 0.87 * s), (cx + 0.135 * s, base - 1.0 * s)], fill=255, width=max(2, int(0.02 * s)))
+    d.polygon([(cx + 0.135 * s, base - 1.0 * s), (cx + 0.24 * s, base - 0.97 * s), (cx + 0.135 * s, base - 0.94 * s)], fill=255)
+    for i in range(3):
+        d.rectangle([cx + 0.12 * s, base - (0.25 + 0.1 * i) * s, cx + 0.15 * s, base - (0.2 + 0.1 * i) * s], fill=0)
+
+
+def haydarpasa(d, cx, base, s):
+    """Haydarpaşa station: a long block with two pointed turrets on the water."""
+    d.rectangle([cx - 0.5 * s, base - 0.32 * s, cx + 0.5 * s, base], fill=255)
+    d.polygon([(cx - 0.5 * s, base - 0.32 * s), (cx - 0.44 * s, base - 0.4 * s), (cx + 0.44 * s, base - 0.4 * s), (cx + 0.5 * s, base - 0.32 * s)], fill=255)
+    for tx in (cx - 0.38 * s, cx + 0.38 * s):
+        d.rectangle([tx - 0.09 * s, base - 0.55 * s, tx + 0.09 * s, base], fill=255)
+        d.polygon([(tx - 0.1 * s, base - 0.55 * s), (tx, base - 0.82 * s), (tx + 0.1 * s, base - 0.55 * s)], fill=255)
+        d.line([(tx, base - 0.82 * s), (tx, base - 0.88 * s)], fill=255, width=max(2, int(0.012 * s)))
+    for i in range(9):
+        wx = cx - 0.24 * s + i * 0.06 * s
+        d.rectangle([wx - 0.012 * s, base - 0.25 * s, wx + 0.012 * s, base - 0.12 * s], fill=0)
+
+
+def camlica(d, cx, base, s):
+    """Çamlıca tower on its hill: a tapering shaft, the flared crown, the mast."""
+    d.polygon(dome(cx, base, 0.9 * s, 0.12 * s, 40) + [(cx + 0.9 * s, base + 1), (cx - 0.9 * s, base + 1)], fill=255)
+    b = base - 0.1 * s
+    d.polygon([(cx - 0.06 * s, b), (cx - 0.025 * s, b - 0.62 * s), (cx + 0.025 * s, b - 0.62 * s), (cx + 0.06 * s, b)], fill=255)
+    d.polygon([(cx - 0.025 * s, b - 0.62 * s), (cx - 0.07 * s, b - 0.74 * s), (cx - 0.05 * s, b - 0.8 * s),
+               (cx + 0.05 * s, b - 0.8 * s), (cx + 0.07 * s, b - 0.74 * s), (cx + 0.025 * s, b - 0.62 * s)], fill=255)
+    for f in (0.7, 0.76):
+        d.rectangle([cx - 0.065 * s, b - f * s, cx + 0.065 * s, b - f * s + 0.008 * s], fill=0)
+    d.polygon([(cx - 0.018 * s, b - 0.8 * s), (cx - 0.006 * s, b - 1.12 * s), (cx + 0.006 * s, b - 1.12 * s), (cx + 0.018 * s, b - 0.8 * s)], fill=255)
 
 
 def skyline(img, sky, W, H, rail, fill, line):
@@ -207,14 +282,19 @@ def skyline(img, sky, W, H, rail, fill, line):
     d.polygon(pts, fill=255)
     k = sky.k * math.radians(1)  # px per degree
     at = lambda az: sky.xy(0.0, math.radians(az))[0]
-    # Süleymaniye on its hill, Yeni Cami by the water, the Blue Mosque and Hagia Sophia on the point
-    mosque(d, at(207), gy - 14 * Z, 13 * k, [(-0.62, 0.95), (0.62, 0.95), (-0.82, 0.75), (0.82, 0.75)])
-    mosque(d, at(182), gy - 4 * Z, 8.5 * k, [(-0.58, 0.85), (0.58, 0.85)])
-    mosque(d, at(146), gy - 12 * Z, 12 * k, [(-0.6, 0.95), (0.6, 0.95), (-0.78, 0.95), (0.78, 0.95), (-0.95, 0.8), (0.95, 0.8)])
-    mosque(d, at(127), gy - 10 * Z, 10 * k, [(-0.66, 0.8), (0.66, 0.9), (0.8, 0.75), (-0.8, 0.7)])
+    # İstanbul by its outlines, none of them alike: the aqueduct, Galata, the bridge, the
+    # Maiden's Tower, Haydarpaşa and Çamlıca (kept left of the legend box in the corner)
+    aqueduct(d, at(108), at(119), gy - 8 * Z, 44 * Z)
+    galata(d, at(127), gy - 12 * Z, 118 * Z)
+    thin = Image.new("L", mask.size, 0)
+    bridge(d, ImageDraw.Draw(thin), at(137), at(176), gy, 104 * Z, Z)
+    maiden(d, at(185), gy + 2 * Z, 58 * Z)
+    haydarpasa(d, at(196), gy - 2 * Z, 92 * Z)
+    camlica(d, at(209), gy - 6 * Z, 190 * Z)
     edge = Image.fromarray(np.asarray(mask.filter(ImageFilter.MaxFilter(2 * Z + 1)), np.int16).__sub__(np.asarray(mask, np.int16)).clip(0, 255).astype(np.uint8))
     img.paste(Image.new("RGB", mask.size, line), (0, 0), edge)
     img.paste(Image.new("RGB", mask.size, fill), (0, 0), mask)
+    img.paste(Image.new("RGB", mask.size, line), (0, 0), thin.point(lambda v: v * 0.6))
     # its reflection in the Golden Horn, broken into ripples
     above = np.asarray(mask.crop((0, 0, W * Z, gy)).transpose(Image.FLIP_TOP_BOTTOM).resize((W * Z, int(gy * 0.45))), np.float32)
     rows = (np.arange(above.shape[0]) // (2 * Z)) % 3 == 0
