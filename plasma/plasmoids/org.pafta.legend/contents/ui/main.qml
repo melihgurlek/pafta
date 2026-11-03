@@ -152,21 +152,21 @@ PlasmoidItem {
                 color: root.ink2
             }
 
-            RowLayout {  // scale bar: five kilometres, true to this screen
+            RowLayout {  // scale bar in five segments, true to this screen; its length follows the zoom
                 Layout.topMargin: 12
                 Layout.fillWidth: true
                 spacing: 0
                 Repeater {
                     model: 5
                     Rectangle {
-                        width: root.sheet.px_per_km || 34; height: 5
+                        width: root.sheet.seg_px || root.sheet.px_per_km || 34; height: 5
                         color: index % 2 === 0 ? root.ink : "transparent"
                         border { width: 1; color: root.ink }
                     }
                 }
                 Text {
                     Layout.leftMargin: 8
-                    text: "5 km"
+                    text: (root.sheet.bar_km || 5) + " km"
                     font { family: root.mono; pixelSize: 10 }
                     color: root.ink2
                 }
@@ -179,7 +179,7 @@ PlasmoidItem {
             }
             Caps {
                 Layout.topMargin: 10
-                text: "EŞ YÜKSELTİ ARALIĞI " + (root.sheet.contour || 50) + " M"
+                text: root.sheet.note || ("EŞ YÜKSELTİ ARALIĞI " + (root.sheet.contour || 50) + " M")
                 color: root.ink2
             }
 
