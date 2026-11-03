@@ -179,7 +179,7 @@ def osm_for(sheet_id, sheet, W, H):
     """Roads, rail, ferries, woods and exact water from OpenFreeMap's vector tiles (OpenMapTiles
     schema), as polylines and polygons in the 2x raster's pixels. Tiles one zoom above the sheet
     line up with the 2x raster 1:1. Cached per sheet in ~/.cache/pafta/osm."""
-    path = CACHE / "osm" / f"{sheet_id}-{W}x{H}-z{sheet['zoom']}-{sheet['lat']}-{sheet['lon']}-v2.json"
+    path = CACHE / "osm" / f"{sheet_id}-{W}x{H}-z{sheet['zoom']}-{sheet['lat']}-{sheet['lon']}-v3.json"
     if path.exists():
         return json.loads(path.read_text())
     import gzip
@@ -189,7 +189,7 @@ def osm_for(sheet_id, sheet, W, H):
     z = sheet["zoom"] + 1
     cx, cy = merc(sheet["lat"], sheet["lon"], z)
     x0, y0 = cx - W / 2 * S, cy - H / 2 * S
-    out = {k: [] for k in ("water", "wood", "built", "park", "motorway", "trunk", "primary", "rail", "ferry", "bridge")}
+    out = {k: [] for k in ("water", "wood", "built", "park", "motorway", "trunk", "primary", "street", "rail", "ferry", "bridge")}
     roads = {"motorway": "motorway", "trunk": "trunk", "primary": "primary"}
     for tx in range(int(x0 // 256), int((x0 + W * S) // 256) + 1):
         for ty in range(int(y0 // 256), int((y0 + H * S) // 256) + 1):
@@ -230,6 +230,8 @@ def osm_for(sheet_id, sheet, W, H):
                     continue
                 if cls in roads:
                     out["bridge" if brunnel == "bridge" and cls in ("motorway", "trunk") else roads[cls]] += lines(f["geometry"])
+                elif cls in ("secondary", "tertiary", "minor"):
+                    out["street"] += lines(f["geometry"])
                 elif cls == "rail" and p.get("subclass") in ("rail", "light_rail", None):
                     out["rail"] += lines(f["geometry"])
                 elif cls == "ferry":
@@ -274,7 +276,7 @@ EMODNET = ("https://ows.emodnet-bathymetry.eu/wcs?service=WCS&version=2.0.1&requ
 CHART = dict(  # day, night
     bands=(["#B7D1E2", "#C6DBE8", "#D6E5EE", "#E4EEF2", "#EEF3F3"], ["#22394A", "#1C3141", "#172938", "#13212D", "#0F1A23"]),
     iso=("#3E78A3", "#3B6A8A"), sounding=("#2F6690", "#6F9BBE"), built=("#E8E6DF", "#191F26"),
-    park=("#D6E2C8", "#17231C"), land=("#F1EFE8", "#12171C"),
+    park=("#DCE6D0", "#17231C"), park_edge=("#8FAA7C", "#3A5A45"), land=("#F3F1EA", "#12171C"),
 )
 DEPTHS = (0, 5, 10, 20, 50)
 
@@ -314,12 +316,24 @@ def chart_base(sheet_id, sheet, osm, k, day, pal, to_ll, mpp, Ws, Hs):
         xs, ys = [p[0] for p in rings[0]], [p[1] for p in rings[0]]
         return (max(xs) - min(xs)) * (max(ys) - min(ys)) > 2500 * S * S
     water = raster_polys([p for p in osm["water"] if big(p)], (Ws, Hs))
+    # land, the way a harbour chart draws a town: the street pattern as hairlines, parks and
+    # woods in green with a crisp edge, a whisper of relief, and all of it fading inland so the
+    # eye stays on the water
     land = np.ones((Hs, Ws, 3)) * chart_colour("land", day)
-    built = nd.gaussian_filter(raster_polys(osm["built"], (Ws, Hs)).astype(np.float64), 1.0)
-    park = nd.gaussian_filter(raster_polys(osm["park"] + osm["wood"], (Ws, Hs)).astype(np.float64), 1.0)
-    land = mix(land, chart_colour("built", day), built[..., None])
-    land = mix(land, chart_colour("park", day), park[..., None] * 0.9)
-    land = mix(land, land * rgb("#59627F") * 1.25, np.clip(1 - k, 0, 1)[..., None] * (0.22 if day > 0.5 else 0.5))
+    land = mix(land, land * rgb("#59627F") * 1.25, np.clip(1 - k, 0, 1)[..., None] * (0.14 if day > 0.5 else 0.4))
+    green = raster_polys(osm["park"] + osm["wood"], (Ws, Hs))
+    edge = green & ~nd.binary_erosion(green, iterations=1)
+    land = mix(land, chart_colour("park", day), nd.gaussian_filter(green.astype(np.float64), 0.6)[..., None] * 0.8)
+    land = mix(land, chart_colour("park_edge", day), edge[..., None] * 0.6)
+    fabric = Image.new("L", (Ws, Hs), 0)
+    df = ImageDraw.Draw(fabric)
+    for kind, w, a in (("street", 1, 150), ("primary", 2, 200), ("trunk", 3, 220), ("motorway", 3, 230), ("bridge", 3, 230)):
+        for line in osm[kind]:
+            df.line(line, fill=a, width=w, joint="curve")
+    fabric = np.asarray(fabric).astype(np.float64) / 255
+    inland = nd.distance_transform_edt(~water) * (mpp / S)  # metres from the shore
+    fade = np.clip(1 - inland / 3500, 0.22, 1) ** 0.9
+    land = mix(land, pal["ink"], (fabric * fade * (0.55 if day > 0.5 else 0.45))[..., None])
     depth = bathy_for(sheet_id, sheet, to_ll, Ws, Hs)
     depth = nd.gaussian_filter(np.where(water, np.clip(depth, 0.5, None), 0), 3) * water
     wcol = np.zeros((Hs, Ws, 3))

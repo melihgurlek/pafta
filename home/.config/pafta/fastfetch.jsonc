@@ -1,45 +1,38 @@
-// Pafta fastfetch: an inset map and a title block, like the corner of the sheet on the desktop.
-// The inset is cut from the latest print by pafta-sun (~/.cache/pafta/inset.png, every 10
-// minutes): the whole feature, unlabelled, under the same sun. Colours are kitty palette
-// indices, so it reads on paper by day and on the chart at night.
+// Pafta fastfetch: the inset map and a legend beside it. pafta-sun cuts the inset from the
+// latest print every 10 minutes (~/.cache/pafta/inset.png), so it carries the same sun as the
+// desktop. The legend is set like the sheet's: Turkish, one left edge, quiet keys, and the
+// magenta overprint only on "you are here". Colours are kitty palette indices, so it reads
+// on paper by day and on the chart at night.
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
   "logo": {
     "type": "kitty-direct",
     "source": "~/.cache/pafta/inset.png",
-    "width": 34,
+    "width": 30,
     "padding": { "top": 1, "left": 2, "right": 4 }
   },
   "display": {
     "separator": "",
     "brightColor": false,
-    "color": { "keys": "90", "title": "39", "output": "39", "separator": "90" },
-    "key": { "width": 10 }
+    "color": { "keys": "90", "title": "39", "output": "39" },
+    "key": { "width": 11 }
   },
   "modules": [
     "break",
-    // the title block: the sheet leads
-    { "type": "command", "key": "{#35}△", "keyWidth": 3,
-      "text": "jq -r '.name' ~/.cache/pafta/state.json 2>/dev/null || echo PAFTA",
-      "format": "{#1}{1}" },
-    { "type": "command", "key": "\u00a0", "keyWidth": 3, "outputColor": "90",
-      "text": "jq -r '.region' ~/.cache/pafta/state.json" },
-    { "type": "command", "key": "\u00a0", "keyWidth": 3, "outputColor": "90",
-      "text": "jq -r '.coords + \"  ·  \" + .scale' ~/.cache/pafta/state.json" },
-    { "type": "command", "key": "\u00a0", "keyWidth": 3,
-      "text": "jq -r 'if .sun.alt > -1 then \"güneş \\(.sun.az)°  \\(.sun.alt)°  ·  batış \\(.sun.set)\" elif .moon.alt > 0 then \"ay \\(.moon.az)°  \\(.moon.alt)°  ·  %\\(.moon.lit)\" else \"gece  ·  doğuş \\(.sun.rise)\" end' ~/.cache/pafta/state.json" },
-    { "type": "custom", "key": "\u00a0", "keyWidth": 3, "format": "{#90}──────────────────────────────" },
-    // then the machine, quietly
-    { "type": "title", "key": "user", "format": "{user-name}{#90}@{#34}{host-name}" },
-    { "type": "os", "key": "os", "format": "{name} {version-id}" },
-    { "type": "command", "key": "kernel", "text": "uname -r | cut -d- -f1" },
-    { "type": "de", "key": "desktop" },
-    { "type": "terminal", "key": "terminal" },
-    { "type": "custom", "key": "type", "format": "IBM Plex · BlexMono" },
-    { "type": "custom", "key": "icons", "format": "Tela circle, contour brown" },
-    { "type": "cpu", "key": "cpu", "format": "{name}" },
-    { "type": "gpu", "key": "gpu", "format": "{name}", "hideType": "integrated" },
+    { "type": "title", "key": "{#35}△", "keyWidth": 3, "format": "{user-name}{#90}@{#34}{host-name}" },
+    { "type": "custom", "key": " ", "keyWidth": 0, "format": "{#90}─────────────────────────────────────" },
+    { "type": "command", "key": "pafta",
+      "text": "jq -r '(.name | ascii_downcase) as $n | .name + \"  ·  \" + .scale' ~/.cache/pafta/state.json 2>/dev/null" },
+    { "type": "command", "key": "gökyüzü",
+      "text": "jq -r 'if .sun.alt > -1 then \"güneş \\(.sun.az)°, \\(.sun.alt)° yüksekte  ·  batış \\(.sun.set)\" elif .moon.alt > 0 then \"ay \\(.moon.az)°, %\\(.moon.lit) dolu  ·  doğuş \\(.sun.rise)\" else \"gece  ·  doğuş \\(.sun.rise)\" end' ~/.cache/pafta/state.json 2>/dev/null" },
     "break",
-    { "type": "colors", "symbol": "circle", "paddingLeft": 0 }
+    { "type": "command", "key": "sistem", "text": ". /etc/os-release; echo \"$NAME $VERSION_ID  ·  çekirdek $(uname -r | cut -d- -f1)\"" },
+    { "type": "de", "key": "masaüstü", "format": "{pretty-name} {version}  ·  Pafta" },
+    { "type": "terminal", "key": "uçbirim", "format": "{pretty-name} {version}" },
+    { "type": "custom", "key": "yazı", "format": "IBM Plex Sans  ·  BlexMono" },
+    { "type": "cpu", "key": "işlemci", "format": "{name}" },
+    { "type": "gpu", "key": "ekran", "format": "{name}", "hideType": "integrated" },
+    "break",
+    { "type": "colors", "symbol": "circle", "paddingLeft": 11 }
   ]
 }
