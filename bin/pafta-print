@@ -355,7 +355,8 @@ def engraved_base(path, day, water_cov, Ws, Hs):
     wc = nd.gaussian_filter(water_cov, 1.0)[..., None]
     ground = mix(rgb(CHART["land"][1]), rgb(CHART["bands"][1][2]), wc)
     line = mix(rgb("#8C9296"), rgb("#3E6A8A"), wc)
-    return mix(ground, line, ink * 0.75)
+    offshore = np.clip(nd.distance_transform_edt(water_cov > 0.5) / 260, 0, 1)[..., None]  # px from the shore
+    return mix(ground, line, ink * (0.45 + 0.3 * wc * (1 - 0.6 * offshore)))
 
 
 def chart_base(sheet_id, sheet, osm, k, day, pal, to_ll, mpp, Ws, Hs):
@@ -400,7 +401,7 @@ def chart_marks(img, sheet, osm, water, depth, day, pal, to_px, mpp, rose_az, ro
         x, y = line[len(line) // 2]
         if 0 <= int(y) < Hs and 0 <= int(x) < Ws and water[int(y), int(x)]:
             pts = [(px * up, py * up) for px, py in line]
-            d.line(pts, fill=ink, width=7, joint="curve")
+            d.line(pts, fill=ink if day > 0.5 else C("ink2"), width=7, joint="curve")
             d.line(pts, fill=paper, width=3, joint="curve")
     rose = sheet.get("rose")
     rx, ry = P(*rose) if rose else (-1e9, -1e9)
@@ -720,7 +721,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
         d = ImageDraw.Draw(img)
         C = lambda c: tuple(int(v * 255) for v in pal[c])
         ink, ink2, over, paper = C("ink"), C("ink2"), C("over"), C("paper")
-        wlabel = tuple(int(v * 255) for v in mix(pal["waterline"], pal["ink"], 0.25))
+        wlabel = tuple(int(v * 255) for v in mix(pal["waterline"], pal["ink"], 0.6 if sheet.get("engraving") else 0.25))
         cx, cy = merc(lat0, lon0, sheet["zoom"])
         x0, y0 = cx - W / 2, cy - H / 2
         to_px = lambda la, lo: ((merc(la, lo, sheet["zoom"])[0] - x0) * S, (merc(la, lo, sheet["zoom"])[1] - y0) * S)
@@ -776,7 +777,7 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
         f_h = font("IBMPlexMono-Regular", 11 * S)
         f_place = font("IBMPlexSans-SemiBold", 10 * S)
         f_water = font("IBMPlexSerif-Italic", 15 * S)
-        hal = (tuple(int(v * 255) for v in mix(pal["paper"], pal["top"], 0.5)), 3 * S)
+        hal = (tuple(int(v * 255) for v in mix(pal["paper"], pal["top"], 0.5)), (2 if sheet.get("engraving") else 3) * S)
         for lab in sheet.get("label", []):
             px, py = to_px(lab["lat"], lab["lon"])
             if not (L + 40 * S < px < R - 40 * S and T + 30 * S < py < Bt - 30 * S):
@@ -795,11 +796,12 @@ def render(sheet_id, when, out, W, H, rail, home, legend=True, inset=None, lock_
                 tw = int(d.textlength(lab["name"], font=f_water) * 1.4) + 40 * S
                 layer = Image.new("RGBA", (tw, 40 * S), (0, 0, 0, 0))
                 text(ImageDraw.Draw(layer), (tw / 2, 26 * S), lab["name"], f_water, wlabel + (255,), track=0.18, anchor="c",
-                     halo=(C("water") + (255,), 3 * S))
+                     halo=None if sheet.get("engraving") else (C("water") + (255,), 3 * S))
                 layer = layer.rotate(lab["angle"], resample=Image.BICUBIC, expand=True)
                 img.paste(layer, (int(px - layer.width / 2), int(py - layer.height / 2)), layer)
             elif lab["kind"] == "water":
-                text(d, (px, py), lab["name"], f_water, wlabel, track=0.18, anchor="c", halo=(C("water"), 3 * S))
+                text(d, (px, py), lab["name"], f_water, wlabel, track=0.18, anchor="c",
+                     halo=None if sheet.get("engraving") else (C("water"), 3 * S))
             elif lab["kind"] in ("light", "landmark"):
                 continue  # drawn with the chart
             elif lab["kind"] == "district":
